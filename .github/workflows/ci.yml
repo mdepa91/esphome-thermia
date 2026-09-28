@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run slave engine tests
+        run: |
+          g++ -std=c++17 -Wall -DTHERMIA_HOST_TEST -I test -I components/thermia test/test_slave.cpp -o test/test_slave
+          ./test/test_slave
+
+  esphome-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ESPHome
+        run: pip install esphome
+      - name: Prepare CI config (local component, dummy secrets)
+        run: |
+          sed 's#source: github://mdepa91/esphome-thermia#source: {type: local, path: components}#' example.yaml > ci.yaml
+          cp secrets.example.yaml secrets.yaml
+          sed -i "s#^api_encryption_key:.*#api_encryption_key: \"$(openssl rand -base64 32)\"#" secrets.yaml
+      - name: Validate
+        run: esphome config ci.yaml
+      - name: Compile
+        run: esphome compile ci.yaml

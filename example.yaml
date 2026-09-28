@@ -1,0 +1,155 @@
+# Example configuration: Wemos D1 mini (ESP8266) connected to the EXT port of a Thermia / Danfoss heat pump.
+# Tested on a Thermia Duo 400V 10 kW with ESPHome 2026.9.0.
+
+esphome:
+  name: thermia
+  friendly_name: Thermia
+
+external_components:
+  - source: github://mdepa91/esphome-thermia
+    components: [thermia]
+
+esp8266:
+  board: d1_mini
+
+logger:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # ESP8266 on a weak signal next to the pump: full TX power avoids "Soft WDT" resets inside the WiFi SDK.
+  output_power: 20.0dB
+  ap:
+    ssid: "Thermia Fallback Hotspot"
+    password: !secret fallback_password
+
+captive_portal:
+
+# Do NOT add an `i2c:` block: the pump is the I2C master, this component is a software I2C slave (0x2E).
+# Do NOT use GPIO2 for status_led if you wire SDA/SCL there.
+thermia:
+  sda_pin: D2   # GPIO4
+  scl_pin: D1   # GPIO5
+  update_interval: 10s
+  # Some registers (e.g. r00/r01) are answered rarely by the pump; a long timeout avoids "unknown" flapping.
+  stale_timeout: 1h
+  # Logs every bus frame - useful on first start-up only, costly afterwards.
+  debug_frames: false
+
+  link:
+    name: "EXT link"
+
+  # --- temperatures ---
+  temp_outdoor:
+    name: "Outdoor temperature"
+  temp_indoor:
+    name: "Indoor temperature (virtual)"
+  temp_supply:
+    name: "Supply (T1)"
+  temp_return:
+    name: "Return (T2)"
+  temp_hotwater:
+    name: "Hot water (T3)"
+  temp_supply_target:
+    name: "Supply target"
+  temp_brine_in:
+    name: "Brine in"
+  temp_brine_out:
+    name: "Brine out"
+  temp_hot_gas:
+    name: "Hot gas"
+
+  # --- status ---
+  compressor:
+    name: "Compressor"
+  brine_pump:
+    name: "Brine pump"
+  brine_pump_speed:
+    name: "Brine pump speed"
+  supply_pump:
+    name: "Supply pump"
+  supply_pump_speed:
+    name: "Supply pump speed"
+  hotwater_production:
+    name: "Hot water production"
+  aux_3kw:
+    name: "Aux heater 3 kW"
+  aux_6kw:
+    name: "Aux heater 6 kW"
+  current:
+    name: "Current"
+  integral:
+    name: "Integral"
+
+  # --- alarms ---
+  alarm:
+    name: "Alarm"
+  alarm_high_pressure:
+    name: "Alarm: high pressure"
+  alarm_low_pressure:
+    name: "Alarm: low pressure"
+  alarm_motor_breaker:
+    name: "Alarm: motor breaker"
+  alarm_brine_flow:
+    name: "Alarm: brine flow"
+  alarm_brine_temperature:
+    name: "Alarm: brine temperature"
+  alarm_outdoor_sensor:
+    name: "Alarm: outdoor sensor"
+  alarm_indoor_sensor:
+    name: "Alarm: indoor sensor"
+  alarm_phase_order:
+    name: "Alarm: phase order"
+  alarm_overheating:
+    name: "Alarm: overheating"
+
+  # --- writable settings (changing them in Home Assistant writes to the pump) ---
+  setting_indoor_temp:
+    name: "Room temperature setpoint"
+  setting_main_mode:
+    name: "Operating mode"
+  setting_curve_slope:
+    name: "Heating curve: slope"
+  setting_curve_min:
+    name: "Heating curve: minimum"
+    min_value: 5
+    max_value: 50
+  setting_curve_max:
+    name: "Heating curve: maximum"
+    min_value: 5
+    max_value: 50
+  setting_heating_stop_temp:
+    name: "Heating stop temperature"
+    min_value: 0
+    max_value: 30
+  setting_hotwater_start_temp:
+    name: "Hot water start"
+    min_value: 0
+    max_value: 70
+  setting_hotwater_stop_temp:
+    name: "Hot water stop"
+    min_value: 0
+    max_value: 70
+
+  # --- counters ---
+  runtime_compressor:
+    name: "Compressor runtime"
+  runtime_hotwater:
+    name: "Hot water runtime"
+  runtime_aux_3kw:
+    name: "Aux 3 kW runtime"
+  runtime_aux_6kw:
+    name: "Aux 6 kW runtime"
+
+  # Any other register from the ThermIQ map, read-only:
+  # registers:
+  #   - register: 0x1D
+  #     name: "Software version"

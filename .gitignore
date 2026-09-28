@@ -1,0 +1,13 @@
+# ESPHome
+.esphome/
+secrets.yaml
+*.bin
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Host test binaries
+test/test_slave
