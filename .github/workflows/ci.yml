@@ -11,11 +11,25 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build and run slave engine tests
         run: |
-          g++ -std=c++17 -Wall -DTHERMIA_HOST_TEST -I test -I components/thermia test/test_slave.cpp -o test/test_slave
+          g++ -std=c++17 -Wall -DTHERMIA_HOST_TEST -I test -I components/thermia test/test_slave.cpp components/thermia/thermia_slave.cpp -o test/test_slave
           ./test/test_slave
 
   esphome-compile:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: esp8266
+            config: example.yaml
+            sed: ""
+          - target: esp32
+            config: example-esp32.yaml
+            sed: ""
+          - target: esp32-c3
+            config: example-esp32.yaml
+            sed: "s#board: esp32dev#board: esp32-c3-devkitm-1#; s#GPIO21#GPIO6#; s#GPIO22#GPIO7#"
+    name: esphome-compile (${{ matrix.target }})
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,7 +39,8 @@ jobs:
         run: pip install esphome
       - name: Prepare CI config (local component, dummy secrets)
         run: |
-          sed 's#source: github://mdepa91/esphome-thermia#source: {type: local, path: components}#' example.yaml > ci.yaml
+          sed 's#source: github://mdepa91/esphome-thermia#source: {type: local, path: components}#' ${{ matrix.config }} > ci.yaml
+          if [ -n "${{ matrix.sed }}" ]; then sed -i "${{ matrix.sed }}" ci.yaml; fi
           cp secrets.example.yaml secrets.yaml
           sed -i "s#^api_encryption_key:.*#api_encryption_key: \"$(openssl rand -base64 32)\"#" secrets.yaml
       - name: Validate

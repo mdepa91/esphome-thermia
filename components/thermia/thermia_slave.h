@@ -16,12 +16,20 @@
 // The ESP8266 has no hardware I2C slave, so a GPIO interrupt on SDA falling (START condition) enters
 // on_sda_fall(), which then polls both lines and handles the whole transaction until STOP. Polling with
 // the cycle counter instead of one interrupt per edge keeps us independent from WiFi interrupt jitter.
+//
+// The ESP32 runs the same engine (see thermia_hw.h for the per-platform register access). Its hardware I2C
+// slave is deliberately not used: the answer to the pump's read depends on the ping that came just before it,
+// the peripheral would have to have it in its TX FIFO already, and sniff/selftest need raw pin access anyway.
+// On a dual-core ESP32 the busy-polling costs nothing that matters: ESPHome runs its loop (and therefore
+// installs the GPIO ISR) on core 1, while WiFi/lwIP live on core 0.
 
 #include <stdint.h>
 #include "thermia_hw.h"
 
 #ifdef THERMIA_HOST_TEST
 #define IRAM_ATTR
+#else
+#include "esphome/core/hal.h"  // IRAM_ATTR
 #endif
 
 namespace esphome {
@@ -60,18 +68,18 @@ class ThermiaSlave {
     uint32_t rise_ns;    // worst time until it read high again (capped at 2 ms)
   };
 
-  // ---- setup (main context, before the interrupt is attached) ----
+  // ---- setup (main context, after the pins are set up, before the interrupt is attached) ----
 
   void begin(uint8_t sda_pin, uint8_t scl_pin) {
-    sda_ = 1UL << sda_pin;
-    scl_ = 1UL << scl_pin;
+    sda_ = hw::pin_mask(sda_pin);
+    scl_ = hw::pin_mask(scl_pin);
     edge_timeout_ = 1500UL * hw::TICKS_PER_US;
     // Worst case legitimate transaction (address + MAX_READ_BYTES, each 9 bits) is ~81 bits; even at a bus twice
     // as slow as the ~20 kHz we measured that is ~8 ms. This is the hard ceiling on how long a single call can
     // busy-loop, so keep it close to that rather than generously large - every microsecond here is CPU time taken
-    // away from everything else on this single-core chip, WiFi included (see thermia_bus_gate.h).
+    // away from everything else on this single-core chip (ESP8266, ESP32-C3/C6/S2), WiFi included (see thermia_bus_gate.h).
     max_transaction_ = 8000UL * hw::TICKS_PER_US;
-    hw::prepare_open_drain(sda_);
+    hw::prepare_sda(sda_pin, sda_);
   }
 
   void add_poll(uint8_t reg) {
@@ -141,139 +149,22 @@ class ThermiaSlave {
   }
 
   // Sniff mode: the ISR only records the raw SDA/SCL waveform (never drives the bus), see sniff().
-  void set_sniff(bool enabled) { sniff_ = enabled; }
+  // The 1 KB capture buffer is only allocated when sniffing is enabled (main context, before the ISR is attached);
+  // on the ESP8266 that is a noticeable slice of the heap that normal operation never needs.
+  void set_sniff(bool enabled) {
+    if (enabled && trace_ == nullptr)
+      trace_ = new TraceEv[TRACE_MAX];  // NOLINT(cppcoreguidelines-owning-memory) - lives as long as the component
+    sniff_ = enabled && trace_ != nullptr;
+  }
   bool trace_ready() const { return trace_ready_; }
   uint8_t trace_count() const { return trace_n_; }
   const TraceEv &trace_at(uint8_t i) const { return trace_[i]; }
   void trace_rearm() { trace_ready_ = false; }
   uint32_t ticks_per_us() const { return hw::TICKS_PER_US; }
 
-  // ---- ISR entry point: SDA falling edge ----
+  // ---- ISR entry point: SDA falling edge (definitions of all ISR code: thermia_slave.cpp) ----
 
-  void IRAM_ATTR on_sda_fall() {
-    if (guard_) {
-      hw::clear_irq(sda_);
-      return;
-    }
-    isr_calls_++;
-    if (sniff_) {
-      sniff();
-      return;
-    }
-    const uint32_t t_begin = hw::ticks();
-
-    uint8_t ev = EV_STOP;
-    bool restart = true;
-    while (restart) {
-      restart = false;
-      if (hw::ticks() - t_begin > max_transaction_ || !wait_scl(false)) {
-        ev = EV_TIMEOUT;
-        break;
-      }
-      uint8_t addr = 0;
-      ev = rx_byte(addr);
-      if (ev == EV_START) {  // START directly followed by another START
-        restart = true;
-        continue;
-      }
-      if (ev != RX_OK)
-        break;
-
-      if ((addr >> 1) != SLAVE_ADDR) {
-        mismatch_++;
-        log_frame('X', &addr, 1);
-        ev = skip_to_end();
-        restart = (ev == EV_START);
-        continue;
-      }
-
-      if (!send_ack()) {
-        ev = EV_TIMEOUT;
-        break;
-      }
-
-      if (addr & 1) {
-        // Master reads from us: this is where we tell it what we want. Either "please send me register N"
-        // (a single byte, 0x00-0x7F), "please WRITE this value to register N" (three bytes: N|0x80, lo, hi -
-        // see queue_write()), or "nothing" (0xFF). Bytes past what we intend are filler (RESP_IDLE) in case the
-        // master reads more than expected.
-        const bool answering_write = write_pending_;
-        uint8_t resp[3];
-        uint8_t resp_len;
-        if (answering_write) {
-          resp[0] = write_reg_ | 0x80;
-          resp[1] = write_value_ & 0xFF;
-          resp[2] = write_value_ >> 8;
-          resp_len = 3;
-        } else {
-          resp[0] = (req_reg_ <= MAX_REG) ? req_reg_ : RESP_IDLE;
-          resp_len = 1;
-        }
-        uint8_t r = RX_OK;
-        uint8_t sent = 0;
-        for (uint8_t i = 0; i < MAX_READ_BYTES; i++) {
-          r = tx_byte(i < resp_len ? resp[i] : RESP_IDLE);
-          if (r == RX_OK) {
-            sent = i + 1;
-            continue;
-          }
-          if (r == BIT_HIGH)  // NACK: master confirms it received this byte and wants no more
-            sent = i + 1;
-          break;  // NACK, timeout, or bus event: either way this transaction's read side is done
-        }
-        if (r == BIT_HIGH)
-          r = skip_to_end();
-        reads_++;
-        log_frame('R', resp, resp_len);
-        if (answering_write)
-          on_write_response_done(sent >= resp_len);
-        ev = r;
-        restart = (ev == EV_START);
-      } else {
-        // Master writes to us: collect bytes until STOP / repeated START.
-        uint8_t buf[MSG_MAX];
-        uint8_t n = 0;
-        for (;;) {
-          uint8_t byte = 0;
-          ev = rx_byte(byte);
-          if (ev != RX_OK)
-            break;
-          if (n < MSG_MAX)
-            buf[n] = byte;
-          if (n < 255)
-            n++;
-          if (!send_ack()) {
-            ev = EV_TIMEOUT;
-            break;
-          }
-          if (hw::ticks() - t_begin > max_transaction_) {
-            ev = EV_TIMEOUT;
-            break;
-          }
-        }
-        if (ev == EV_START || ev == EV_STOP)
-          on_message(buf, n < MSG_MAX ? n : MSG_MAX, n);
-        restart = (ev == EV_START);
-      }
-    }
-
-    hw::sda_release(sda_);
-    hw::clear_irq(sda_);  // edges caused by the transaction we just handled must not re-trigger us
-
-    if (ev == EV_STOP) {
-      transactions_++;
-      fail_streak_ = 0;
-    } else {
-      errors_++;
-      const uint8_t code = ev;
-      log_frame('E', &code, 1);
-      if (++fail_streak_ >= FAIL_STREAK_LIMIT)
-        guard_ = true;
-    }
-    const uint32_t dt = hw::ticks() - t_begin;
-    if (dt > max_isr_ticks_)
-      max_isr_ticks_ = dt;
-  }
+  void on_sda_fall();
 
   // ---- accessors for the main loop ----
 
@@ -323,200 +214,49 @@ class ThermiaSlave {
   // ---- bus primitives (all polled) ----
 
   // Wait for SCL to reach `high`. False on timeout.
-  bool IRAM_ATTR wait_scl(bool high) {
-    const uint32_t t0 = hw::ticks();
-    for (;;) {
-      if (((hw::read_bus() & scl_) != 0) == high)
-        return true;
-      if (hw::ticks() - t0 > edge_timeout_)
-        return false;
-    }
-  }
+  bool wait_scl(bool high);
 
   // Receive one bit. Precondition: SCL low. Returns BIT_LOW/BIT_HIGH with SCL low again, or EV_*.
-  uint8_t IRAM_ATTR rx_bit() {
-    uint32_t b;
-    uint32_t t0 = hw::ticks();
-    while (!((b = hw::read_bus()) & scl_)) {
-      if (hw::ticks() - t0 > edge_timeout_)
-        return EV_TIMEOUT;
-    }
-    const bool v = (b & sda_) != 0;  // sampled on SCL rising edge
-    t0 = hw::ticks();
-    for (;;) {
-      b = hw::read_bus();
-      if (!(b & scl_))
-        return v ? BIT_HIGH : BIT_LOW;
-      if (((b & sda_) != 0) != v)  // SDA moved while SCL is high: START or STOP
-        return v ? EV_START : EV_STOP;
-      if (hw::ticks() - t0 > edge_timeout_)
-        return EV_TIMEOUT;
-    }
-  }
-
-  uint8_t IRAM_ATTR rx_byte(uint8_t &out) {
-    uint8_t v = 0;
-    for (uint8_t i = 0; i < 8; i++) {
-      const uint8_t r = rx_bit();
-      if (r > BIT_HIGH)
-        return r;
-      v = (v << 1) | r;
-    }
-    out = v;
-    return RX_OK;
-  }
+  uint8_t rx_bit();
+  uint8_t rx_byte(uint8_t &out);
 
   // Pull SDA low during the 9th clock. Precondition: SCL low.
-  bool IRAM_ATTR send_ack() {
-    hw::sda_low(sda_);
-    const bool ok = wait_scl(true) && wait_scl(false);
-    hw::sda_release(sda_);
-    return ok;
-  }
+  bool send_ack();
 
   // Send one byte and read the master's ACK. Precondition: SCL low.
   // Returns RX_OK (= ACK, master wants more), BIT_HIGH (NACK) or EV_*.
-  uint8_t IRAM_ATTR tx_byte(uint8_t value) {
-    for (int8_t i = 7; i >= 0; i--) {
-      if (value & (1 << i))
-        hw::sda_release(sda_);
-      else
-        hw::sda_low(sda_);
-      if (!wait_scl(true) || !wait_scl(false)) {
-        hw::sda_release(sda_);
-        return EV_TIMEOUT;
-      }
-    }
-    hw::sda_release(sda_);
-    return rx_bit();
-  }
+  uint8_t tx_byte(uint8_t value);
+
+  // True once the current ISR call has used up its budget (max_transaction_). Every loop that can follow the bus
+  // for more than a few bits checks it, so one call never masks interrupts for much longer than that - the
+  // per-edge timeout alone would let a noisy bus with a slow, never-ending clock keep us here for seconds.
+  bool expired() const { return hw::ticks() - t_begin_ > max_transaction_; }
 
   // Ignore everything until STOP / START / timeout. Precondition: SCL low.
-  uint8_t IRAM_ATTR skip_to_end() {
-    for (uint16_t i = 0; i < 512; i++) {
-      const uint8_t r = rx_bit();
-      if (r > BIT_HIGH)
-        return r;
-    }
-    return EV_TIMEOUT;
-  }
+  uint8_t skip_to_end();
 
   // Record every change of SDA/SCL after a falling edge on either line (both are wired to this ISR in sniff mode), until the bus is quiet for a while or the buffer is
   // full. Purely passive: used to find out what the pump really does on the wires (clock speed, which line is
   // which, whether a line is stuck).
-  void IRAM_ATTR sniff() {
-    if (trace_ready_) {  // main loop has not printed the previous capture yet
-      hw::clear_irq(sda_ | scl_);
-      return;
-    }
-    const uint32_t mask = sda_ | scl_;
-    const uint32_t quiet = 1500UL * hw::TICKS_PER_US;
-    const uint32_t window = 6000UL * hw::TICKS_PER_US;
-    const uint32_t t0 = hw::ticks();
-    uint32_t t_last = t0;
-    uint32_t last = hw::read_bus() & mask;
-    uint8_t n = 0;
-    trace_[n].dt_ticks = 0;
-    trace_[n].sda = (last & sda_) != 0;
-    trace_[n].scl = (last & scl_) != 0;
-    n++;
-    while (n < TRACE_MAX) {
-      const uint32_t b = hw::read_bus() & mask;
-      const uint32_t now = hw::ticks();
-      if (b != last) {
-        trace_[n].dt_ticks = now - t_last;
-        trace_[n].sda = (b & sda_) != 0;
-        trace_[n].scl = (b & scl_) != 0;
-        n++;
-        last = b;
-        t_last = now;
-      } else if (now - t_last > quiet || now - t0 > window) {
-        break;
-      }
-    }
-    trace_n_ = n;
-    trace_ready_ = true;
-    hw::clear_irq(sda_ | scl_);
-  }
+  void sniff();
 
   // ---- protocol ----
 
-  void IRAM_ATTR on_message(const uint8_t *buf, uint8_t stored, uint8_t total) {
-    if (total == 0)
-      return;
-    log_frame('W', buf, stored);
-    const uint8_t cmd = buf[0];
-    if (cmd == CMD_PING || cmd == CMD_PING_BOOT) {
-      on_ping();
-    } else if (cmd <= MAX_REG && total == 3) {
-      on_data(cmd, (uint16_t) buf[1] | ((uint16_t) buf[2] << 8));
-    } else {
-      unknown_++;
-    }
-  }
-
-  void IRAM_ATTR on_ping() {
-    pings_++;
-    if (poll_n_ == 0)
-      return;
-    if (req_reg_ != RESP_IDLE) {  // previous request was not answered
-      if (++req_tries_ >= MAX_TRIES) {
-        unanswered_++;
-        advance();
-      }
-    }
-    if (req_reg_ == RESP_IDLE) {
-      req_reg_ = poll_[poll_idx_];
-      req_tries_ = 0;
-    }
-  }
-
-  void IRAM_ATTR on_data(uint8_t reg, uint16_t value) {
-    data_frames_++;
-    uint16_t seq = (slot_[reg] >> 16) + 1;
-    if (seq == 0)
-      seq = 1;
-    slot_[reg] = ((uint32_t) seq << 16) | value;
-    if (reg == req_reg_)
-      advance();
-  }
-
-  void IRAM_ATTR advance() {
-    req_reg_ = RESP_IDLE;
-    req_tries_ = 0;
-    if (++poll_idx_ >= poll_n_)
-      poll_idx_ = 0;
-  }
+  void on_message(const uint8_t *buf, uint8_t stored, uint8_t total);
+  void on_ping();
+  void on_data(uint8_t reg, uint16_t value);
+  void advance();
 
   // Called right after we offered a pending write as the response to a master read. `delivered` means the master
   // read all 3 bytes of our response (reg|0x80, lo, hi) without a bus error - not that the pump necessarily acted
   // on it, just that it heard us. Give up after WRITE_MAX_TRIES offers with no clean delivery.
-  void IRAM_ATTR on_write_response_done(bool delivered) {
-    if (delivered) {
-      write_pending_ = false;
-      writes_delivered_++;
-    } else if (++write_tries_ >= WRITE_MAX_TRIES) {
-      write_pending_ = false;
-      writes_failed_++;
-    }
-  }
+  void on_write_response_done(bool delivered);
 
-  void IRAM_ATTR log_frame(char kind, const uint8_t *d, uint8_t len) {
-    if (!log_enabled_)
-      return;
-    const uint8_t next = (log_head_ + 1) % LOG_SIZE;
-    if (next == log_tail_)
-      return;  // full, drop
-    FrameLog &f = log_[log_head_];
-    f.kind = kind;
-    f.len = len > 4 ? 4 : len;
-    for (uint8_t i = 0; i < f.len; i++)
-      f.data[i] = d[i];
-    log_head_ = next;
-  }
+  void log_frame(char kind, const uint8_t *d, uint8_t len);
 
   uint32_t sda_{0}, scl_{0};
   uint32_t edge_timeout_{0}, max_transaction_{0};
+  uint32_t t_begin_{0};  // hw::ticks() when the current ISR call started
 
   uint8_t poll_[128];
   uint8_t poll_n_{0};
@@ -538,7 +278,7 @@ class ThermiaSlave {
   volatile bool guard_{false};
 
   bool sniff_{false};
-  TraceEv trace_[TRACE_MAX];
+  TraceEv *trace_{nullptr};
   volatile uint8_t trace_n_{0};
   volatile bool trace_ready_{false};
 

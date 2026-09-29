@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "esphome/core/component.h"
+#include "esphome/core/hal.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/number/number.h"
 #include "esphome/components/select/select.h"
@@ -16,8 +17,8 @@ namespace thermia {
 
 class ThermiaComponent : public PollingComponent {
  public:
-  void set_sda_pin(uint8_t pin) { this->sda_pin_ = pin; }
-  void set_scl_pin(uint8_t pin) { this->scl_pin_ = pin; }
+  void set_sda_pin(InternalGPIOPin *pin) { this->sda_pin_ = pin; }
+  void set_scl_pin(InternalGPIOPin *pin) { this->scl_pin_ = pin; }
   void set_stale_timeout(uint32_t ms) { this->stale_timeout_ms_ = ms; }
   void set_debug_frames(bool enabled) { this->debug_frames_ = enabled; }
   void set_sniff(bool enabled) { this->sniff_ = enabled; }
@@ -83,7 +84,7 @@ class ThermiaComponent : public PollingComponent {
     select::Select *select;
   };
 
-  static void IRAM_ATTR isr_(void *arg) { static_cast<ThermiaComponent *>(arg)->slave_.on_sda_fall(); }
+  static void isr_(ThermiaComponent *self);
 
   void note_register_(uint8_t reg) {
     for (uint8_t r : this->registers_)
@@ -101,8 +102,8 @@ class ThermiaComponent : public PollingComponent {
   void update_link_(uint32_t now);
   void update_bus_gate_(uint32_t now);
 
-  uint8_t sda_pin_{0};
-  uint8_t scl_pin_{0};
+  InternalGPIOPin *sda_pin_{nullptr};
+  InternalGPIOPin *scl_pin_{nullptr};
   uint32_t stale_timeout_ms_{120000};
   bool debug_frames_{false};
   bool sniff_{false};

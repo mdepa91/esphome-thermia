@@ -36,6 +36,8 @@ struct Sim {
 
 inline Sim g_sim;
 
+inline uint32_t pin_mask(uint8_t pin) { return 1u << pin; }
+
 inline uint32_t read_bus() {
   Sim &s = g_sim;
   s.tick++;
@@ -65,7 +67,7 @@ inline void sda_low(uint32_t) { g_sim.slave_low = true; }
 inline void sda_release(uint32_t) { g_sim.slave_low = false; }
 inline uint32_t ticks() { return g_sim.tick; }
 inline void clear_irq(uint32_t) {}
-inline void prepare_open_drain(uint32_t) {}
+inline void prepare_sda(uint8_t, uint32_t) {}
 inline uint32_t irq_lock() { return 0; }
 inline void irq_unlock(uint32_t) {}
 

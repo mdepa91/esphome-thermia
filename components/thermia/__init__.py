@@ -1,6 +1,6 @@
 """ESPHome component for the Danfoss/Thermia heat pump "EXT" port.
 
-The pump is the I2C master; this component emulates the I2C slave at address 0x2E in software (ESP8266) and
+The pump is the I2C master; this component emulates the I2C slave at address 0x2E in software (ESP8266/ESP32) and
 answers the pump's polling with "please send me register N" (reads) or, for the handful of registers exposed as
 `number`/`select` entities below, "please WRITE this value to register N". There is no protocol-level write
 confirmation - see queue_write() in thermia_slave.h - so every writable entity also polls its own register for
@@ -16,8 +16,11 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import pins
 from esphome.components import binary_sensor, number, select, sensor
+from esphome.core import CORE
 from esphome.const import (
     CONF_ID,
+    CONF_INVERTED,
+    CONF_NUMBER,
     CONF_MAX_VALUE,
     CONF_MIN_VALUE,
     CONF_STEP,
@@ -248,8 +251,8 @@ RAW_NUMBER_SCHEMA = number.number_schema(ThermiaNumber).extend(
 
 _schema = {
     cv.GenerateID(): cv.declare_id(ThermiaComponent),
-    cv.Required(CONF_SDA_PIN): cv.All(pins.internal_gpio_pin_number, cv.int_range(min=0, max=15)),
-    cv.Required(CONF_SCL_PIN): cv.All(pins.internal_gpio_pin_number, cv.int_range(min=0, max=15)),
+    cv.Required(CONF_SDA_PIN): pins.internal_gpio_input_pullup_pin_schema,
+    cv.Required(CONF_SCL_PIN): pins.internal_gpio_input_pullup_pin_schema,
     cv.Optional(CONF_STALE_TIMEOUT, default="120s"): cv.positive_time_period_milliseconds,
     cv.Optional(CONF_DEBUG_FRAMES, default=False): cv.boolean,
     cv.Optional(CONF_SNIFF, default=False): cv.boolean,
@@ -277,16 +280,32 @@ for _key, _spec in SELECTS.items():
     _schema[cv.Optional(_key)] = select.select_schema(ThermiaSelect, **_spec["schema"])
 
 
-def _different_pins(config):
-    if config[CONF_SDA_PIN] == config[CONF_SCL_PIN]:
+# The ISR samples both lines with one register read (see thermia_hw.h), so both must be in the register it reads:
+# GPI covers GPIO0-15 on the ESP8266 (GPIO16 is on a separate RTC register), GPIO_IN covers GPIO0-31 on the ESP32.
+_MAX_PIN = {"esp8266": 15, "esp32": 31}
+
+
+def _validate_pins(config):
+    max_pin = _MAX_PIN[CORE.target_platform]
+    for key in (CONF_SDA_PIN, CONF_SCL_PIN):
+        pin = config[key]
+        if pin[CONF_NUMBER] > max_pin:
+            raise cv.Invalid(
+                f"GPIO{pin[CONF_NUMBER]} is not supported here, use GPIO0-{max_pin} on {CORE.target_platform}",
+                path=[key],
+            )
+        if pin.get(CONF_INVERTED, False):
+            raise cv.Invalid("inverted pins are not supported (the bus is read straight from the registers)",
+                             path=[key])
+    if config[CONF_SDA_PIN][CONF_NUMBER] == config[CONF_SCL_PIN][CONF_NUMBER]:
         raise cv.Invalid("sda_pin and scl_pin must be different pins")
     return config
 
 
 CONFIG_SCHEMA = cv.All(
     cv.Schema(_schema).extend(cv.polling_component_schema("10s")),
-    _different_pins,
-    cv.only_on_esp8266,
+    cv.only_on(["esp8266", "esp32"]),
+    _validate_pins,
 )
 
 
@@ -294,8 +313,8 @@ async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
 
-    cg.add(var.set_sda_pin(config[CONF_SDA_PIN]))
-    cg.add(var.set_scl_pin(config[CONF_SCL_PIN]))
+    cg.add(var.set_sda_pin(await cg.gpio_pin_expression(config[CONF_SDA_PIN])))
+    cg.add(var.set_scl_pin(await cg.gpio_pin_expression(config[CONF_SCL_PIN])))
     cg.add(var.set_stale_timeout(config[CONF_STALE_TIMEOUT]))
     cg.add(var.set_debug_frames(config[CONF_DEBUG_FRAMES]))
     cg.add(var.set_sniff(config[CONF_SNIFF]))

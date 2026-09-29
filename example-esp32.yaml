@@ -1,0 +1,61 @@
+# Example configuration: ESP32 DevKit connected to the EXT port of a Thermia / Danfoss heat pump.
+# Everything except the board and the pins is identical to example.yaml - copy the entities you want from there.
+
+esphome:
+  name: thermia
+  friendly_name: Thermia
+
+external_components:
+  - source: github://mdepa91/esphome-thermia
+    components: [thermia]
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Thermia Fallback Hotspot"
+    password: !secret fallback_password
+
+captive_portal:
+
+# Do NOT add an `i2c:` block: the pump is the I2C master, this component is a software I2C slave (0x2E).
+# Pins: GPIO0-31, not boot-strapping pins (0, 2, 5, 12, 15 on the classic ESP32), not input-only.
+thermia:
+  sda_pin: GPIO21
+  scl_pin: GPIO22
+  update_interval: 10s
+  stale_timeout: 1h
+
+  link:
+    name: "EXT link"
+  temp_outdoor:
+    name: "Outdoor temperature"
+  temp_supply:
+    name: "Supply (T1)"
+  temp_return:
+    name: "Return (T2)"
+  temp_hotwater:
+    name: "Hot water (T3)"
+  compressor:
+    name: "Compressor"
+  alarm:
+    name: "Alarm"
+  setting_indoor_temp:
+    name: "Room temperature setpoint"
+  setting_main_mode:
+    name: "Operating mode"

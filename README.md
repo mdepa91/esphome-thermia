@@ -1,13 +1,13 @@
 # ESPHome component for Thermia / Danfoss heat pumps (EXT port)
 
 Read **and write** Thermia / Danfoss ground-source heat pump parameters from Home Assistant with a plain
-**ESP8266** (Wemos D1 mini) wired to the pump's **EXT** connector. No ThermIQ box, no Arduino bridge.
+**ESP8266** (Wemos D1 mini) or **ESP32** (any variant) wired to the pump's **EXT** connector. No ThermIQ box, no Arduino bridge.
 
 - 40+ ready-made entities: temperatures, compressor / pump / heater status, alarms, run-time counters.
 - Writable settings as `number` / `select` entities: room temperature setpoint, operating mode, heating curve,
   hot water thresholds, …
 - Generic `registers:` (read) and `set_registers:` (write) for anything else in the register map.
-- Software I2C **slave** on ESP8266, running entirely in IRAM, with host-side unit tests (201 checks).
+- Software I2C **slave** on ESP8266 and ESP32, running entirely in IRAM, with host-side unit tests (203 checks).
 
 > **Tested on:** Thermia Duo 400V 10 kW, ESPHome 2026.9.0, Wemos D1 mini.
 > Other Thermia / Danfoss models using the same EXT protocol (the one ThermIQ talks to) will most likely work,
@@ -28,7 +28,10 @@ Thermia EXT (5 V)      bi-directional level shifter      Wemos D1 mini (3.3 V)
 - EXT is a 4-pin connector: VCC 5 V, SCL, SDA, GND. Verify the pin order on your own unit.
 - The bus is **5 V**; use a bi-directional level shifter (BSS138 type). The pump has its own pull-ups.
 - Power the ESP from its own USB supply; connect only GND + SDA + SCL to EXT. Wire it with the pump switched off.
-- D1/D2 are recommended: they are not boot-strapping pins. GPIO0–15 are accepted.
+- ESP8266: D1/D2 are recommended: they are not boot-strapping pins. GPIO0–15 are accepted.
+- ESP32: GPIO0–31 are accepted; avoid boot-strapping pins (GPIO0/2/5/12/15 on the classic ESP32) and the
+  flash pins. GPIO21/22 work well on an ESP32 DevKit. The ESP32 is 3.3 V too – keep the level shifter.
+  Minimal config: [`example-esp32.yaml`](example-esp32.yaml).
 
 ## Installation
 
@@ -66,7 +69,7 @@ Do **not** add an `i2c:` block – the ESPHome I2C component can only be a maste
 
 | Option | Default | Description |
 |---|---|---|
-| `sda_pin`, `scl_pin` | **required** | GPIO pins (0–15) wired to EXT via the level shifter. |
+| `sda_pin`, `scl_pin` | **required** | GPIO pins wired to EXT via the level shifter: GPIO0–15 on ESP8266, GPIO0–31 on ESP32. |
 | `update_interval` | `10s` | How often entity states are published. |
 | `stale_timeout` | `120s` | A value older than this is published as unavailable. Some registers are answered rarely – `1h` works well. |
 | `debug_frames` | `false` | Log every bus frame. Useful for first start-up only; it costs CPU and UART time. |
@@ -150,7 +153,8 @@ Factory reset (r59) and counter reset (r5A) are deliberately not exposed as name
 ## How it works
 
 The EXT port is an I2C bus where **the heat pump is the master** (~20 kHz clock) and the accessory is a slave
-at 7-bit address **0x2E**. The ESP8266 has no hardware I2C slave, so this component implements one in software:
+at 7-bit address **0x2E**. The ESP8266 has no hardware I2C slave, so this component implements one in software
+(the ESP32 runs the same engine, see [ESP8266 vs ESP32](#esp8266-vs-esp32)):
 
 1. A GPIO interrupt on the falling edge of SDA (START) enters `on_sda_fall()`, which then polls both lines with a
    cycle counter until STOP. Everything on that path lives in IRAM.
@@ -173,10 +177,26 @@ transactions, a plausibility window for temperatures (−60…200 °C), and a **
 only after WiFi has been connected for 5 s and detached immediately when it drops, so bus traffic never starves
 the WiFi association on the single ESP8266 core.
 
+### ESP8266 vs ESP32
+
+The protocol engine (`thermia_slave.h`) is shared; only `thermia_hw.h` differs, each backend using the fastest
+access its chip offers:
+
+| | ESP8266 | ESP32 (all variants) |
+|---|---|---|
+| Sampling both lines | one read of `GPI` (GPIO0–15) | one read of `GPIO_IN` (GPIO0–31) |
+| Driving SDA | output-enable toggle with latch at 0 (`GPES`/`GPEC`) | hardware open-drain pad, latch `W1TC`/`W1TS` |
+| Time base | `ccount` register | `esp_cpu_get_cycle_count()` (Xtensa and RISC-V) |
+| Where the ISR busy-polls | the only core, shared with WiFi | core 1 (ESPHome loop), WiFi on core 0 – single-core C3/C6/S2 behave like the ESP8266 |
+
+The ESP32's hardware I2C slave is deliberately not used: the byte we return on the pump's read depends on the ping
+received just before it and would have to be in the peripheral's TX FIFO already; the sniffer and self-test also
+need raw pin access. The bus gate is kept on ESP32 as well – harmless on dual-core, needed on single-core variants.
+
 | File | Role |
 |---|---|
-| `thermia_slave.h` | I2C slave engine (ISR bit-bang), protocol, sniffer, SDA probe – no ESPHome dependencies |
-| `thermia_hw.h` | GPIO access; replaced by a simulator in host tests |
+| `thermia_slave.h`, `thermia_slave.cpp` | I2C slave engine (ISR bit-bang), protocol, sniffer, SDA probe – no ESPHome dependencies besides `IRAM_ATTR` |
+| `thermia_hw.h` | Per-platform GPIO/timer access (ESP8266, ESP32); replaced by a simulator in host tests |
 | `thermia_bus_gate.h` | Decides when the bus may be touched (network-stability gate) |
 | `thermia.h`, `thermia.cpp` | ESPHome component: entities, publishing, logging, diagnostics |
 | `thermia_number.h`, `thermia_select.h` | Writable `number` / `select` entities |
@@ -213,20 +233,25 @@ python3 tools/decode_sniff.py logs.txt
 `selftest: true` briefly pulls SDA low three times at boot, logs whether the line follows, then logs every SDA level
 change. It never touches SCL.
 
+Sporadic exceptions/resets: see [docs/crash-analysis.md](docs/crash-analysis.md) for what was ruled out, what was
+fixed and what to collect.
+
 ## Tests
 
 The slave engine is tested on the host against a simulated I2C master (ping → read → data frame, repeated START,
-foreign addresses, stuck bus, late interrupts, writes, bus gate, sniffer):
+foreign addresses, stuck bus, never-ending frames, late interrupts, writes, bus gate, sniffer):
 
 ```sh
-g++ -std=c++17 -DTHERMIA_HOST_TEST -I test -I components/thermia test/test_slave.cpp -o test/test_slave && test/test_slave
+g++ -std=c++17 -DTHERMIA_HOST_TEST -I test -I components/thermia test/test_slave.cpp components/thermia/thermia_slave.cpp -o test/test_slave && test/test_slave
 ```
 
-CI runs these tests and compiles `example.yaml` with ESPHome on every push.
+CI runs these tests and compiles `example.yaml` (ESP8266) and `example-esp32.yaml` (ESP32, ESP32-C3) with ESPHome
+on every push.
 
 ## Limitations
 
-- ESP8266 only (the slave engine uses ESP8266 GPIO registers directly). ESP32 support would need a new `thermia_hw.h`.
+- ESP8266 and ESP32 only. On ESP32 both pins must be GPIO0–31, and `inverted:` pins are not supported.
+- ESP32 support is compile-tested; the bus timing was verified on real hardware with the ESP8266 only.
 - Temperatures have 1 °C resolution – that's what the pump reports.
 - Register meanings come from the ThermIQ map; not all are confirmed on every model.
 

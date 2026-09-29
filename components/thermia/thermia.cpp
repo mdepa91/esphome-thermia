@@ -49,16 +49,19 @@ static bool network_is_connected() { return network::is_connected(); }
 static bool network_is_connected() { return true; }  // no network component configured - do not gate on it
 #endif
 
+void IRAM_ATTR ThermiaComponent::isr_(ThermiaComponent *self) { self->slave_.on_sda_fall(); }
+
 void ThermiaComponent::setup() {
   for (uint8_t reg : this->registers_)
     this->slave_.add_poll(reg);
 
-  this->slave_.begin(this->sda_pin_, this->scl_pin_);
+  // Both pins come in as input + pull-up from the YAML schema; begin() then turns SDA into an open-drain output
+  // the platform-specific way (see thermia_hw.h), so it must run after the pins' own setup().
+  this->sda_pin_->setup();
+  this->scl_pin_->setup();
+  this->slave_.begin(this->sda_pin_->get_pin(), this->scl_pin_->get_pin());
   this->slave_.set_log_enabled(this->debug_frames_);
   this->slave_.set_sniff(this->sniff_);
-
-  pinMode(this->sda_pin_, INPUT_PULLUP);
-  pinMode(this->scl_pin_, INPUT_PULLUP);
   if (this->selftest_)
     this->probe_ = this->slave_.probe_sda();  // harmless at boot, done before anything is attached
 
@@ -73,14 +76,14 @@ void ThermiaComponent::update_bus_gate_(uint32_t now) {
     return;
   this->bus_attached_ = should_be_attached;
   if (should_be_attached) {
-    attachInterruptArg(this->sda_pin_, ThermiaComponent::isr_, this, FALLING);
+    this->sda_pin_->attach_interrupt(ThermiaComponent::isr_, this, gpio::INTERRUPT_FALLING_EDGE);
     if (this->sniff_)  // sniffer wakes up on either line, so it works whichever way round they are wired
-      attachInterruptArg(this->scl_pin_, ThermiaComponent::isr_, this, FALLING);
+      this->scl_pin_->attach_interrupt(ThermiaComponent::isr_, this, gpio::INTERRUPT_FALLING_EDGE);
     ESP_LOGI(TAG, "Network is up - starting to talk to the heat pump");
   } else {
-    detachInterrupt(this->sda_pin_);
+    this->sda_pin_->detach_interrupt();
     if (this->sniff_)
-      detachInterrupt(this->scl_pin_);
+      this->scl_pin_->detach_interrupt();
     ESP_LOGW(TAG, "Network is down - pausing bus handling so it does not get in the way of reconnecting");
     this->last_ping_ms_ = 0;  // link is down regardless of what the (now frozen) ISR counters still say
   }
@@ -144,20 +147,21 @@ void ThermiaComponent::drain_frame_log_() {
 // Selftest: report every change of the SDA pin level right away (rate limited) plus a status line every 2 s.
 // SDA should sit high while the pump is silent; touching the wire to GND must show up here.
 void ThermiaComponent::watch_pins_(uint32_t now) {
-  const int sda = digitalRead(this->sda_pin_);
+  const int sda = this->sda_pin_->digital_read();
   if (sda != this->watch_last_sda_) {
     this->watch_last_sda_ = sda;
     this->watch_changes_++;
     if (now - this->watch_last_log_ms_ >= 100) {
       this->watch_last_log_ms_ = now;
-      ESP_LOGI(TAG, ">>> SDA pin GPIO%u went %s (change #%u)", this->sda_pin_, sda ? "HIGH" : "LOW",
+      ESP_LOGI(TAG, ">>> SDA pin GPIO%u went %s (change #%u)", this->sda_pin_->get_pin(), sda ? "HIGH" : "LOW",
                (unsigned) this->watch_changes_);
     }
   }
   if (now - this->watch_status_ms_ >= 2000) {
     this->watch_status_ms_ = now;
     ESP_LOGI(TAG, "pins now: SDA(GPIO%u)=%d SCL(GPIO%u)=%d | SDA changes seen: %u | edge interrupts: %u",
-             this->sda_pin_, sda, this->scl_pin_, digitalRead(this->scl_pin_), (unsigned) this->watch_changes_,
+             this->sda_pin_->get_pin(), sda, this->scl_pin_->get_pin(), this->scl_pin_->digital_read(),
+             (unsigned) this->watch_changes_,
              (unsigned) this->slave_.isr_calls());
   }
 }
@@ -282,7 +286,7 @@ void ThermiaComponent::update() {
            (unsigned) this->slave_.mismatches(), (unsigned) this->slave_.unknown_messages(),
            (unsigned) this->slave_.unanswered(), (unsigned) this->slave_.writes_delivered(),
            (unsigned) this->slave_.writes_failed(), (unsigned) this->slave_.isr_calls(),
-           (unsigned) this->slave_.max_isr_us(), digitalRead(this->sda_pin_), digitalRead(this->scl_pin_));
+           (unsigned) this->slave_.max_isr_us(), this->sda_pin_->digital_read(), this->scl_pin_->digital_read());
 
   // Raw dump of everything received so far - handy to verify the register mapping against the pump's display.
   // Age (seconds since the last successful answer for that register) is included and marked with '!' once it
@@ -312,8 +316,8 @@ void ThermiaComponent::update() {
 
 void ThermiaComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "Thermia/Danfoss EXT port (software I2C slave, address 0x%02X):", ThermiaSlave::SLAVE_ADDR);
-  ESP_LOGCONFIG(TAG, "  SDA pin: GPIO%u", this->sda_pin_);
-  ESP_LOGCONFIG(TAG, "  SCL pin: GPIO%u", this->scl_pin_);
+  LOG_PIN("  SDA pin: ", this->sda_pin_);
+  LOG_PIN("  SCL pin: ", this->scl_pin_);
   ESP_LOGCONFIG(TAG, "  Stale timeout: %us", (unsigned) (this->stale_timeout_ms_ / 1000));
   ESP_LOGCONFIG(TAG, "  Starts talking to the pump %us after the network comes up (and pauses if it drops)",
                 (unsigned) (ThermiaComponent::BUS_GATE_GRACE_MS / 1000));
@@ -322,7 +326,7 @@ void ThermiaComponent::dump_config() {
   if (this->selftest_) {
     ESP_LOGCONFIG(TAG, "  SDA probe (GPIO%u pulled low by us at boot): idle=%s, while driven low it reads %s, "
                        "after release it reads %s, rise time %u ns",
-                  this->sda_pin_, this->probe_.idle_high ? "HIGH" : "LOW",
+                  this->sda_pin_->get_pin(), this->probe_.idle_high ? "HIGH" : "LOW",
                   this->probe_.low_reads_low ? "LOW (ok)" : "HIGH (!)",
                   this->probe_.released_high ? "HIGH (ok)" : "LOW (!)", (unsigned) this->probe_.rise_ns);
     if (!this->probe_.low_reads_low)

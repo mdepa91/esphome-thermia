@@ -1,5 +1,5 @@
 // Host test for the Thermia I2C slave engine.
-//   g++ -std=c++17 -DTHERMIA_HOST_TEST -I test -I components/thermia test/test_slave.cpp -o /tmp/test_slave && /tmp/test_slave
+//   g++ -std=c++17 -DTHERMIA_HOST_TEST -I test -I components/thermia test/test_slave.cpp components/thermia/thermia_slave.cpp -o /tmp/test_slave && /tmp/test_slave
 
 #include <cstdio>
 #include <string>
@@ -492,6 +492,25 @@ static void test_guard() {
   CHECK(!b.slave.guard_tripped(), "guard reset");
 }
 
+// A foreign frame that never ends (noise, a slow clock that keeps running without STOP): every edge arrives within
+// the per-edge timeout, so only the per-call budget can end the ISR. Without it this ran ~300 ms with interrupts
+// masked on the ESP8266.
+static void test_isr_budget() {
+  printf("ISR budget bounds a never-ending frame\n");
+  Bench b({0x00});
+  Master m;
+  m.idle();
+  m.start();
+  m.write_byte(0x64);  // someone else's address
+  for (int i = 0; i < 600; i++)
+    m.bit(i & 1);
+  m.stop();
+  m.idle();
+  b.play(m, 2000);  // 3 steps per bit x 2000 polls = 600 us per bit at 10 ticks/us, well under the 1.5 ms edge timeout
+  CHECK(b.slave.max_isr_us() < 10000, "one ISR call ran %u us", (unsigned) b.slave.max_isr_us());
+  CHECK(b.slave.errors() >= 1, "cut-off frame is counted as an error");
+}
+
 int main() {
   test_poll_cycle(1, 0);
   test_poll_cycle(3, 0);
@@ -504,6 +523,7 @@ int main() {
   test_other_address_ignored();
   test_unknown_and_short_messages();
   test_bus_stall();
+  test_isr_budget();
   test_late_isr_is_harmless();
   test_sniff();
   test_probe();

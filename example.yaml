@@ -11,6 +11,9 @@ external_components:
 
 esp8266:
   board: d1_mini
+# ESP32 instead (any variant; see example-esp32.yaml for pins):
+# esp32:
+#   board: esp32dev
 
 logger:
 
