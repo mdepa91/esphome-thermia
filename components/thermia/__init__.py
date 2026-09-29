@@ -118,10 +118,6 @@ SENSORS = {
     "brine_pump_speed": _num(0x1F, UNIT_PERCENT, icon="mdi:pump"),
     "integral": _num(0x19, "°C·min", icon="mdi:sigma"),
     "sw_version": _num(0x1D, icon="mdi:chip", state_class=None, diagnostic=True),
-    # --- settings (read only - see NUMBERS/SELECTS below for the writable ones) ---------------
-    # How much weight the pump gives to room temperature in the heating curve (0-4). Only has an effect when a
-    # real room sensor is connected to the pump's "Room sensor" port (writing r01 over EXT is ignored by the pump).
-    "setting_room_factor": _num(0x3C, icon="mdi:home-percent", state_class=None, diagnostic=True),
     # --- run time counters --------------------------------------------------------------------
     "runtime_compressor": _num(0x68, UNIT_HOUR, device_class=DEVICE_CLASS_DURATION,
                                state_class=STATE_CLASS_TOTAL_INCREASING, diagnostic=True),
@@ -206,6 +202,9 @@ NUMBERS = {
     "setting_curve_offset_p5": _writable_temp(0x37, -5.0, 5.0, icon="mdi:thermometer-plus"),
     "setting_curve_offset_0": _writable_temp(0x38, -5.0, 5.0, icon="mdi:thermometer"),
     "setting_curve_offset_n5": _writable_temp(0x39, -5.0, 5.0, icon="mdi:thermometer-minus"),
+    # How much weight the pump gives to room temperature in the heating curve (0-4). Only has an effect when a
+    # real room sensor is connected to the pump's "Room sensor" port (writing r01 over EXT is ignored by the pump).
+    "setting_room_factor": _writable_num(0x3C, 0.0, 4.0, icon="mdi:home-percent"),
     "setting_heating_stop_temp": _writable_temp(0x3A, 0.0, 200.0, icon="mdi:thermometer-off"),
     "setting_hotwater_start_temp": _writable_temp(0x44, 0.0, 100.0, icon="mdi:water-boiler"),
     "setting_hotwater_stop_temp": _writable_temp(0x54, 0.0, 100.0, icon="mdi:water-boiler"),

@@ -129,6 +129,8 @@ thermia:
     name: "Heating curve: maximum"
     min_value: 5
     max_value: 50
+  setting_room_factor:
+    name: "Room factor"
   setting_heating_stop_temp:
     name: "Heating stop temperature"
     min_value: 0
