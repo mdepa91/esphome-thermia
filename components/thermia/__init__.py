@@ -50,6 +50,7 @@ ThermiaSelect = thermia_ns.class_("ThermiaSelect", select.Select)
 CONF_SDA_PIN = "sda_pin"
 CONF_SCL_PIN = "scl_pin"
 CONF_STALE_TIMEOUT = "stale_timeout"
+CONF_REQUEST_TRIES = "request_tries"
 CONF_DEBUG_FRAMES = "debug_frames"
 CONF_SNIFF = "sniff"
 CONF_SELFTEST = "selftest"
@@ -253,6 +254,7 @@ _schema = {
     cv.Required(CONF_SDA_PIN): pins.internal_gpio_input_pullup_pin_schema,
     cv.Required(CONF_SCL_PIN): pins.internal_gpio_input_pullup_pin_schema,
     cv.Optional(CONF_STALE_TIMEOUT, default="120s"): cv.positive_time_period_milliseconds,
+    cv.Optional(CONF_REQUEST_TRIES, default=3): cv.int_range(min=1, max=255),
     cv.Optional(CONF_DEBUG_FRAMES, default=False): cv.boolean,
     cv.Optional(CONF_SNIFF, default=False): cv.boolean,
     cv.Optional(CONF_SELFTEST, default=False): cv.boolean,
@@ -315,6 +317,7 @@ async def to_code(config):
     cg.add(var.set_sda_pin(await cg.gpio_pin_expression(config[CONF_SDA_PIN])))
     cg.add(var.set_scl_pin(await cg.gpio_pin_expression(config[CONF_SCL_PIN])))
     cg.add(var.set_stale_timeout(config[CONF_STALE_TIMEOUT]))
+    cg.add(var.set_request_tries(config[CONF_REQUEST_TRIES]))
     cg.add(var.set_debug_frames(config[CONF_DEBUG_FRAMES]))
     cg.add(var.set_sniff(config[CONF_SNIFF]))
     cg.add(var.set_selftest(config[CONF_SELFTEST]))

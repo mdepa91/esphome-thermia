@@ -21,6 +21,7 @@ class ThermiaComponent : public PollingComponent {
   void set_scl_pin(InternalGPIOPin *pin) { this->scl_pin_ = pin; }
   void set_stale_timeout(uint32_t ms) { this->stale_timeout_ms_ = ms; }
   void set_debug_frames(bool enabled) { this->debug_frames_ = enabled; }
+  void set_request_tries(uint8_t tries) { this->slave_.set_request_tries(tries); }
   void set_sniff(bool enabled) { this->sniff_ = enabled; }
   void set_selftest(bool enabled) { this->selftest_ = enabled; }
   void set_link_sensor(binary_sensor::BinarySensor *sensor) { this->link_ = sensor; }

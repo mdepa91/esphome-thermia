@@ -239,7 +239,7 @@ static void test_idle_and_readonly() {
 }
 
 static void test_unanswered_register_is_skipped() {
-  printf("register the pump never delivers is retried MAX_TRIES times, then skipped\n");
+  printf("register the pump never delivers is retried request_tries times, then skipped\n");
   Bench b({0x11, 0x22});
   std::vector<uint8_t> asked;
   for (int i = 0; i < 6; i++)
@@ -250,6 +250,22 @@ static void test_unanswered_register_is_skipped() {
   // Late answer for a register we are not currently asking for is still stored.
   b.send_data(0x11, 7, 1, 0);
   CHECK((b.slave.slot(0x11) & 0xFFFF) == 7, "unsolicited data stored");
+}
+
+static void test_request_tries_configurable() {
+  printf("request_tries: a slow register is still being asked for when the pump finally answers\n");
+  Bench b({0x00, 0x05});
+  b.slave.set_request_tries(10);
+  for (int i = 0; i < 8; i++)
+    CHECK(b.ping(0xFE, 1, 0) == 0x00, "still asking for r00 on ping %d", i);
+  b.send_data(0x00, 12, 1, 0);
+  CHECK((b.slave.slot(0x00) & 0xFFFF) == 12, "r00 stored");
+  CHECK(b.ping(0xFE, 1, 0) == 0x05, "moves on to r05 once r00 arrived");
+  CHECK(b.slave.unanswered() == 0, "nothing given up, got %u", b.slave.unanswered());
+
+  Bench z({0x11, 0x22});
+  z.slave.set_request_tries(0);  // clamped to 1
+  CHECK(z.ping(0xFE, 1, 0) == 0x11 && z.ping(0xFE, 1, 0) == 0x22, "0 behaves like 1 try");
 }
 
 static void test_multi_byte_read() {
@@ -539,6 +555,7 @@ int main() {
   test_combined_transaction();
   test_idle_and_readonly();
   test_unanswered_register_is_skipped();
+  test_request_tries_configurable();
   test_multi_byte_read();
   test_other_address_ignored();
   test_unknown_and_short_messages();

@@ -264,7 +264,7 @@ void IRAM_ATTR ThermiaSlave::on_ping() {
   if (poll_n_ == 0)
     return;
   if (req_reg_ != RESP_IDLE) {  // previous request was not answered
-    if (++req_tries_ >= MAX_TRIES) {
+    if (++req_tries_ >= request_tries_) {
       unanswered_++;
       advance();
     }
