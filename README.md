@@ -1,5 +1,7 @@
 # ESPHome component for Thermia / Danfoss heat pumps (EXT port)
 
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/mdepa91)
+
 Read **and write** Thermia / Danfoss ground-source heat pump parameters from Home Assistant with a plain
 **ESP8266** (Wemos D1 mini) or **ESP32** (any variant) wired to the pump's **EXT** connector. No ThermIQ box, no Arduino bridge.
 
