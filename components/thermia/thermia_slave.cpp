@@ -281,6 +281,7 @@ void IRAM_ATTR ThermiaSlave::on_data(uint8_t reg, uint16_t value) {
   if (seq == 0)
     seq = 1;
   slot_[reg] = ((uint32_t) seq << 16) | value;
+  superseded_[reg] = false;
   if (reg == req_reg_)
     advance();
 }
@@ -295,6 +296,7 @@ void IRAM_ATTR ThermiaSlave::advance() {
 void IRAM_ATTR ThermiaSlave::on_write_response_done(bool delivered) {
   if (delivered) {
     write_pending_ = false;
+    superseded_[write_reg_] = true;
     writes_delivered_++;
   } else if (++write_tries_ >= WRITE_MAX_TRIES) {
     write_pending_ = false;

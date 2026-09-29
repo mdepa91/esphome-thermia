@@ -106,6 +106,10 @@ class ThermiaSlave {
     return true;
   }
   bool write_pending() const { return write_pending_; }
+  // True from the moment a write to `reg` is delivered until the pump next reports that register: the value in
+  // slot(reg) predates our write, so it must not be used to "correct" what the UI shows. The pump may answer a
+  // given register only every few minutes, and republishing the pre-write value meanwhile looks like a revert.
+  bool superseded(uint8_t reg) const { return superseded_[reg & MAX_REG]; }
   uint32_t writes_delivered() const { return writes_delivered_; }
   uint32_t writes_failed() const { return writes_failed_; }
 
@@ -271,6 +275,7 @@ class ThermiaSlave {
   volatile uint16_t write_value_{0};
   volatile uint8_t write_tries_{0};
   volatile uint32_t writes_delivered_{0}, writes_failed_{0};
+  volatile bool superseded_[MAX_REG + 1]{};
 
   volatile uint32_t pings_{0}, data_frames_{0}, reads_{0}, transactions_{0}, errors_{0};
   volatile uint32_t mismatch_{0}, unknown_{0}, unanswered_{0}, isr_calls_{0}, max_isr_ticks_{0};

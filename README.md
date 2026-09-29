@@ -143,7 +143,9 @@ When the pump reads a byte from us, instead of a register number we may answer `
 "write this value to that register". There is **no protocol-level acknowledgement**: we only know the pump
 received the three bytes. That is why every writable entity also **polls its own register**: the state shown in
 Home Assistant is what the pump actually reports, so if the pump ignores or clamps a value, the entity corrects
-itself on the next read.
+itself on the next read. Until the pump reports the register again after a write, the entity keeps the value you
+set rather than falling back to the reading from before the write. The pump may answer some registers (e.g. r32)
+only every few minutes. Such a register is marked with `~` in the `regs:` debug dump.
 
 Not everything is writable: writing r01 (indoor temperature) to emulate a room sensor is **ignored** by the pump.
 The physical "Room sensor" port is not a plain resistive input either (it carries ~27 V DC and a digital protocol).

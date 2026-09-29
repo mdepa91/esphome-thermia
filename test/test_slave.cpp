@@ -446,6 +446,26 @@ static void test_write_retries_then_fails() {
   CHECK(b.ping(0xFE, 1, 0) == 0xFF, "back to idle, nothing left to offer");
 }
 
+static void test_write_supersedes_cached_value() {
+  printf("a delivered write marks the cached reading as superseded until the pump reports the register again\n");
+  Bench b({0x32});
+  CHECK(b.ping(0xFE, 1, 0) == 0x32, "r32 requested");
+  b.send_data(0x32, 17, 1, 0);
+  CHECK(!b.slave.superseded(0x32), "fresh reading is not superseded");
+  b.slave.queue_write(0x32, 21);
+  CHECK(!b.slave.superseded(0x32), "not superseded while the write is only queued");
+  b.ping_read_n(0xFE, 3, 1, 0);
+  CHECK(b.slave.superseded(0x32), "superseded once the write is delivered");
+  CHECK((b.slave.slot(0x32) & 0xFFFF) == 17, "cached pre-write value still there for diagnostics");
+  b.send_data(0x32, 21, 1, 0);
+  CHECK(!b.slave.superseded(0x32), "cleared by the next reading of r32");
+
+  b.slave.queue_write(0x20, 1);
+  for (int i = 0; i < ThermiaSlave::WRITE_MAX_TRIES; i++)
+    b.ping_read_n(0xFE, 1, 1, 0);
+  CHECK(!b.slave.superseded(0x20), "a failed write does not supersede anything");
+}
+
 static void test_bus_gate() {
   printf("bus gate: waits for a grace period after the network connects, drops out instantly on disconnect\n");
   using esphome::thermia::BusGate;
@@ -530,6 +550,7 @@ int main() {
   test_write_delivered();
   test_write_takes_priority_over_polling();
   test_write_retries_then_fails();
+  test_write_supersedes_cached_value();
   test_bus_gate();
   test_guard();
   printf("\n%d checks, %d failed\n", g_checks, g_failed);

@@ -258,9 +258,10 @@ void ThermiaComponent::update() {
 
   // Numbers/selects: correct the optimistic state set by control() with what the pump actually reports. This is
   // the only way the user finds out a write was ignored or clamped - the bus protocol gives no other confirmation.
+  // Skipped while superseded(): the cached reading predates our last write, it would undo the optimistic state.
   for (auto &b : this->numbers_) {
     uint16_t raw;
-    if (!this->fresh_value_(b.reg, raw))
+    if (this->slave_.superseded(b.reg) || !this->fresh_value_(b.reg, raw))
       continue;
     const float value = (b.is_signed ? (float) (int16_t) raw : (float) raw) * b.scale;
     if (value < b.min || value > b.max) {
@@ -272,7 +273,7 @@ void ThermiaComponent::update() {
   }
   for (auto &b : this->selects_) {
     uint16_t raw;
-    if (this->fresh_value_(b.reg, raw) && b.select->has_index(raw))
+    if (!this->slave_.superseded(b.reg) && this->fresh_value_(b.reg, raw) && b.select->has_index(raw))
       b.select->publish_state((size_t) raw);
     // else: the pump reported a value outside our known options (e.g. one of the undocumented modes 5-16) -
     // leave the select showing its last known-good state rather than erroring or guessing a label for it.
@@ -292,7 +293,8 @@ void ThermiaComponent::update() {
   // Age (seconds since the last successful answer for that register) is included and marked with '!' once it
   // exceeds stale_timeout - this is what actually gates publishing (see fresh_value_()), not just "ever received".
   // A register can sit here with an unchanged value for a long time perfectly legitimately (the pump's own
-  // reading did not change) - the age/'!' is what tells them apart from one that stopped being answered.
+  // reading did not change) - the age/'!' is what tells them apart from one that stopped being answered. '~' marks a
+  // register we wrote to and the pump has not reported since (see ThermiaSlave::superseded()).
   const uint32_t now_ms = millis();
   char line[112];
   size_t pos = 0;
@@ -302,8 +304,9 @@ void ThermiaComponent::update() {
     if ((slot >> 16) == 0)
       continue;
     const uint32_t age_ms = now_ms - this->rx_ms_[reg];
-    pos += snprintf(line + pos, sizeof(line) - pos, "r%02X=%04X@%us%s ", reg, (unsigned) (slot & 0xFFFF),
-                     (unsigned) (age_ms / 1000), age_ms > this->stale_timeout_ms_ ? "!" : "");
+    pos += snprintf(line + pos, sizeof(line) - pos, "r%02X=%04X@%us%s%s ", reg, (unsigned) (slot & 0xFFFF),
+                     (unsigned) (age_ms / 1000), age_ms > this->stale_timeout_ms_ ? "!" : "",
+                     this->slave_.superseded(reg) ? "~" : "");
     if (pos > sizeof(line) - 20) {
       ESP_LOGD(TAG, "regs: %s", line);
       pos = 0;
