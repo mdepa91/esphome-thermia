@@ -241,6 +241,7 @@ static void test_idle_and_readonly() {
 static void test_unanswered_register_is_skipped() {
   printf("register the pump never delivers is retried request_tries times, then skipped\n");
   Bench b({0x11, 0x22});
+  b.slave.set_request_tries(3);
   std::vector<uint8_t> asked;
   for (int i = 0; i < 6; i++)
     asked.push_back(b.ping(0xFE, 1, 0));

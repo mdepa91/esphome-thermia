@@ -42,7 +42,7 @@ class ThermiaSlave {
   static constexpr uint8_t CMD_PING = 0xFE;
   static constexpr uint8_t RESP_IDLE = 0xFF;
   static constexpr uint8_t MAX_REG = 0x7F;
-  static constexpr uint8_t DEFAULT_REQUEST_TRIES = 3;  // how many pings we ask for a register before giving up on it
+  static constexpr uint8_t DEFAULT_REQUEST_TRIES = 50;  // how many pings we ask for a register before giving up on it
   static constexpr uint8_t WRITE_MAX_TRIES = 3;  // how many read-responses we offer a pending write before giving up
   static constexpr uint8_t FAIL_STREAK_LIMIT = 50;  // consecutive failed transactions before the ISR pauses itself
 
@@ -91,8 +91,9 @@ class ThermiaSlave {
 
   void set_log_enabled(bool enabled) { log_enabled_ = enabled; }
   // How many consecutive pings we keep asking for the same register before moving on to the next one. The pump
-  // answers most registers on the first ping, but some (r00/r01, r32/r34 on a Thermia Duo) seemingly only after a
-  // longer wait - the original Arduino bridge (rainisto) keeps asking for the same register until it arrives.
+  // answers most registers on the first ping, but some (r00/r01, r32/r34 on a Thermia Duo) only after a longer
+  // wait: with 3 tries they never arrived at all, with 50 they arrive every cycle and unanswered pings dropped from
+  // ~25% to ~0.5%. The original Arduino bridge (rainisto) keeps asking for the same register until it arrives.
   void set_request_tries(uint8_t tries) { request_tries_ = tries ? tries : 1; }
 
   // Ask the pump to write `value` to `reg` the next time it reads from us (main context only, e.g. from a

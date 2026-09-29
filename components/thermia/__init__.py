@@ -254,7 +254,7 @@ _schema = {
     cv.Required(CONF_SDA_PIN): pins.internal_gpio_input_pullup_pin_schema,
     cv.Required(CONF_SCL_PIN): pins.internal_gpio_input_pullup_pin_schema,
     cv.Optional(CONF_STALE_TIMEOUT, default="120s"): cv.positive_time_period_milliseconds,
-    cv.Optional(CONF_REQUEST_TRIES, default=3): cv.int_range(min=1, max=255),
+    cv.Optional(CONF_REQUEST_TRIES, default=50): cv.int_range(min=1, max=255),
     cv.Optional(CONF_DEBUG_FRAMES, default=False): cv.boolean,
     cv.Optional(CONF_SNIFF, default=False): cv.boolean,
     cv.Optional(CONF_SELFTEST, default=False): cv.boolean,

@@ -73,8 +73,8 @@ Do **not** add an `i2c:` block – the ESPHome I2C component can only be a maste
 |---|---|---|
 | `sda_pin`, `scl_pin` | **required** | GPIO pins wired to EXT via the level shifter: GPIO0–15 on ESP8266, GPIO0–31 on ESP32. |
 | `update_interval` | `10s` | How often entity states are published. |
-| `stale_timeout` | `120s` | A value older than this is published as unavailable. Some registers are answered rarely – `1h` works well. |
-| `request_tries` | `3` | How many pump pings (~13 ms apart) we keep asking for one register before moving on. Raise it (e.g. `50`) if some registers, like `temp_outdoor` (r00), never arrive. |
+| `stale_timeout` | `120s` | A value older than this is published as unavailable. |
+| `request_tries` | `50` | How many pump pings (~13 ms apart) we keep asking for one register before moving on. Some registers (e.g. `temp_outdoor`, r00) are answered only after a longer wait – with `3` they never arrived. |
 | `debug_frames` | `false` | Log every bus frame. Useful for first start-up only; it costs CPU and UART time. |
 | `sniff` | `false` | Hardware diagnostics: record raw SDA/SCL waveforms. **Disables the protocol.** See [Diagnostics](#diagnostics). |
 | `selftest` | `false` | Hardware diagnostics: probe the SDA line at boot and log level changes. |
