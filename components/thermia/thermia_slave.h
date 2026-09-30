@@ -7,11 +7,12 @@
 //   2. reads one byte                                                 -> we answer with either
 //        0xFF        "nothing to ask"
 //        0x00-0x7F   "send me this register"
-//        0x80-0xFF   "write value to register (reg & 0x7F)" - NEVER used here, this module is read-only
+//        0x80-0xFF   "write value to register (reg & 0x7F)" - followed by lo, hi (see queue_write())
 //   3. if a register was requested, writes [reg, lo, hi] to us        -> we ACK and store it
 //
 // Protocol reverse engineered by rainisto (https://github.com/rainisto/arduino_i2c_orja,
-// https://omakotikotitalomme.blogspot.com/2015/03/danfoss-lampopumpun-salaisuudet.html).
+// https://omakotikotitalomme.blogspot.com/2015/03/danfoss-lampopumpun-salaisuudet.html). Used as a protocol
+// reference only - this is an independent implementation, no code was copied.
 //
 // The ESP8266 has no hardware I2C slave, so a GPIO interrupt on SDA falling (START condition) enters
 // on_sda_fall(), which then polls both lines and handles the whole transaction until STOP. Polling with

@@ -262,8 +262,8 @@ on every push.
 
 ## Credits
 
-- [rainisto/arduino_i2c_orja](https://github.com/rainisto/arduino_i2c_orja) – Arduino slave for the same port; the
-  protocol logic follows it.
+- [rainisto/arduino_i2c_orja](https://github.com/rainisto/arduino_i2c_orja) – Arduino slave for the same port
+  (GPL-3.0); used as a protocol reference only, no code was copied.
 - [Danfoss-lämpöpumpun salaisuudet](https://omakotikotitalomme.blogspot.com/2015/03/danfoss-lampopumpun-salaisuudet.html)
   – the original reverse-engineering blog post (pinout, address, ping, frame format).
 - [ThermIQ/thermiq_mqtt-ha](https://github.com/ThermIQ/thermiq_mqtt-ha) – register map and mode labels.
