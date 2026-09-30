@@ -27,13 +27,21 @@ Thermia EXT (5 V)      bi-directional level shifter      Wemos D1 mini (3.3 V)
   GND  ────────────────  GND ── GND ─────────────────────  GND
 ```
 
-- EXT is a 4-pin connector: VCC 5 V, SCL, SDA, GND. Verify the pin order on your own unit.
+- EXT is a 4-pin connector: GND, SDA, SCL, 5 V – see the [photo below](#ext-connector). Verify the pin order on
+  your own unit.
 - The bus is **5 V**; use a bi-directional level shifter (BSS138 type). The pump has its own pull-ups.
 - Power the ESP from its own USB supply; connect only GND + SDA + SCL to EXT. Wire it with the pump switched off.
 - ESP8266: D1/D2 are recommended: they are not boot-strapping pins. GPIO0–15 are accepted.
 - ESP32: GPIO0–31 are accepted; avoid boot-strapping pins (GPIO0/2/5/12/15 on the classic ESP32) and the
   flash pins. GPIO21/22 work well on an ESP32 DevKit. The ESP32 is 3.3 V too – keep the level shifter.
   Minimal config: [`example-esp32.yaml`](example-esp32.yaml).
+
+### EXT connector
+
+On the controller board of a Thermia Duo (PIC16F887 board) the EXT header is at the top edge, next to the relays.
+Pin order, left to right: **GND, SDA, SCL, 5 V**. The 5 V pin is not needed – power the ESP from its own supply.
+
+<img src="docs/hardware/ext-port-pinout.jpg" alt="Thermia controller board with the EXT header pins labelled GND, SDA, SCL and 5V" width="600">
 
 ## Installation
 
