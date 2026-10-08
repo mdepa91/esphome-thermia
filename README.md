@@ -38,7 +38,8 @@ Thermia EXT (5 V)      bi-directional level shifter      Wemos D1 mini (3.3 V)
 
 ### EXT connector
 
-On the controller board of a Thermia Duo (PIC16F887 board) the EXT header is at the top edge, next to the relays.
+On the controller board of a Thermia Duo (PIC16F887 board) the EXT header is at the top edge, right next to the
+Ethernet (RJ45) socket used by the display.
 Pin order, left to right: **GND, SDA, SCL, 5 V**. The 5 V pin is not needed – power the ESP from its own supply.
 
 <img src="docs/hardware/ext-port-pinout.jpg" alt="Thermia controller board with the EXT header pins labelled GND, SDA, SCL and 5V" width="600">

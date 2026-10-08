@@ -241,12 +241,17 @@ void ThermiaComponent::update() {
         b.sensor->publish_state(NAN);  // stale -> shows as unavailable/unknown in HA
       continue;
     }
-    const float value = (b.is_signed ? (float) (int16_t) raw : (float) raw) * b.scale;
+    float value = (b.is_signed ? (float) (int16_t) raw : (float) raw) * b.scale;
     if (value < b.min || value > b.max) {
       ESP_LOGW(TAG, "r%02X = 0x%04X (%.1f) is outside the plausible range [%.0f, %.0f], ignored", b.reg, raw, value,
                b.min, b.max);
       continue;
     }
+    // Tenths come from a separate register; until it has been received (or if it is not 0-9) report whole
+    // degrees rather than nothing.
+    uint16_t tenths;
+    if (b.decimal_reg != NO_DECIMAL_REG && this->fresh_value_(b.decimal_reg, tenths) && tenths <= 9)
+      value += (value < 0 ? -0.1f : 0.1f) * tenths;
     b.sensor->publish_state(value);
   }
 

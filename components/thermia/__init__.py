@@ -66,14 +66,17 @@ _T_MIN, _T_MAX = -60.0, 200.0
 _ANY = 1e30
 
 
-def _temp(reg, tmin=_T_MIN, tmax=_T_MAX, diagnostic=False):
+# decimal_reg: a second register holding the tenths (0-9) of this one - the pump splits indoor temperatures that
+# way (ThermIQ map: r01/r02 indoor, r03/r04 indoor target). Both are polled; the sensor then reports e.g. 23.4.
+def _temp(reg, tmin=_T_MIN, tmax=_T_MAX, diagnostic=False, decimal_reg=None):
     return dict(
         reg=reg,
+        decimal_reg=decimal_reg,
         min=tmin,
         max=tmax,
         schema=dict(
             unit_of_measurement=UNIT_CELSIUS,
-            accuracy_decimals=0,
+            accuracy_decimals=0 if decimal_reg is None else 1,
             device_class=DEVICE_CLASS_TEMPERATURE,
             state_class=STATE_CLASS_MEASUREMENT,
             **({"entity_category": ENTITY_CATEGORY_DIAGNOSTIC} if diagnostic else {}),
@@ -101,8 +104,8 @@ def _num(reg, unit=None, icon=None, device_class=None, state_class=STATE_CLASS_M
 SENSORS = {
     # --- measurements -------------------------------------------------------------------------
     "temp_outdoor": _temp(0x00),
-    "temp_indoor": _temp(0x01),
-    "temp_indoor_target": _temp(0x03),
+    "temp_indoor": _temp(0x01, decimal_reg=0x02),
+    "temp_indoor_target": _temp(0x03, decimal_reg=0x04),
     "temp_supply": _temp(0x05),  # heating supply line ("T1")
     "temp_return": _temp(0x06),  # heating return line ("T2")
     "temp_hotwater": _temp(0x07),  # hot water tank ("T3")
@@ -328,7 +331,9 @@ async def to_code(config):
     for key, spec in SENSORS.items():
         if key in config:
             sens = await sensor.new_sensor(config[key])
-            cg.add(var.add_sensor(spec["reg"], sens, 1.0, True, spec["min"], spec["max"]))
+            decimal_reg = spec.get("decimal_reg")
+            cg.add(var.add_sensor(spec["reg"], sens, 1.0, True, spec["min"], spec["max"],
+                                  0xFF if decimal_reg is None else decimal_reg))
 
     for key, spec in BINARY_SENSORS.items():
         if key in config:

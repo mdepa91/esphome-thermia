@@ -26,9 +26,14 @@ class ThermiaComponent : public PollingComponent {
   void set_selftest(bool enabled) { this->selftest_ = enabled; }
   void set_link_sensor(binary_sensor::BinarySensor *sensor) { this->link_ = sensor; }
 
-  void add_sensor(uint8_t reg, sensor::Sensor *sensor, float scale, bool is_signed, float min, float max) {
-    this->sensors_.push_back({reg, sensor, scale, is_signed, min, max});
+  // decimal_reg: register holding this value's tenths (0-9), or NO_DECIMAL_REG - see __init__.py _temp().
+  static constexpr uint8_t NO_DECIMAL_REG = 0xFF;
+  void add_sensor(uint8_t reg, sensor::Sensor *sensor, float scale, bool is_signed, float min, float max,
+                  uint8_t decimal_reg = NO_DECIMAL_REG) {
+    this->sensors_.push_back({reg, sensor, scale, is_signed, min, max, decimal_reg});
     this->note_register_(reg);
+    if (decimal_reg != NO_DECIMAL_REG)
+      this->note_register_(decimal_reg);
   }
   void add_binary_sensor(uint8_t reg, uint16_t mask, binary_sensor::BinarySensor *sensor) {
     this->binary_sensors_.push_back({reg, mask, sensor});
@@ -66,6 +71,7 @@ class ThermiaComponent : public PollingComponent {
     bool is_signed;
     float min;
     float max;
+    uint8_t decimal_reg;
   };
   struct BinaryBinding {
     uint8_t reg;
