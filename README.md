@@ -12,6 +12,9 @@ Read **and write** Thermia / Danfoss ground-source heat pump parameters from Hom
 - Software I2C **slave** on ESP8266 and ESP32, running entirely in IRAM, with host-side unit tests (203 checks).
 - Pairs with [esphome-thermia-room](https://github.com/mdepa91/esphome-thermia-room), which emulates the room sensor (terminals 303/304) so the
   pump regulates on a real room temperature and a setpoint from Home Assistant. Both run on one ESP32.
+- Visualised by [thermia-heatpump-card](https://github.com/mdepa91/thermia-heatpump-card), a Lovelace card that draws the pump with live
+  temperatures and a spinning compressor and pumps. The component publishes a *Thermia card map* entity, so the card
+  fills in its entities after you pick the ESPHome device.
 
 > **Tested on:** Thermia Duo 400V 10 kW – Wemos D1 mini (ESP8266, ESPHome 2026.9.0) and ESP32-S3
 > (ESPHome 2026.9.1, together with [esphome-thermia-room](https://github.com/mdepa91/esphome-thermia-room)).
