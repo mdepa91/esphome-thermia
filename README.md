@@ -12,7 +12,7 @@ Read **and write** Thermia / Danfoss ground-source heat pump parameters from Hom
 - Software I2C **slave** on ESP8266 and ESP32, running entirely in IRAM, with host-side unit tests (203 checks).
 - Pairs with [esphome-thermia-room](https://github.com/mdepa91/esphome-thermia-room), which emulates the room sensor (terminals 303/304) so the
   pump regulates on a real room temperature and a setpoint from Home Assistant. Both run on one ESP32.
-- Visualised by [thermia-heatpump-card](https://github.com/mdepa91/thermia-heatpump-card), a Lovelace card that draws the pump with live
+- Visualised by [thermia-heatpump-card](https://github.com/mdepa91/ha-thermia-heatpump-card), a Lovelace card that draws the pump with live
   temperatures and a spinning compressor and pumps. The component publishes a *Thermia card map* entity, so the card
   fills in its entities after you pick the ESPHome device.
 
@@ -94,7 +94,7 @@ Do **not** add an `i2c:` block – the ESPHome I2C component can only be a maste
 | `sniff` | `false` | Hardware diagnostics: record raw SDA/SCL waveforms. **Disables the protocol.** See [Diagnostics](#diagnostics). |
 | `selftest` | `false` | Hardware diagnostics: probe the SDA line at boot and log level changes. |
 | `link` | – | Binary sensor (connectivity): on while the pump is talking to us. |
-| `card_map` | name: *Thermia card map* | Diagnostic select that lists `<config key>=<entity name>` for every configured entity, so [thermia-heatpump-card](https://github.com/mdepa91/thermia-heatpump-card) can pick the entities by itself once you choose this device. Read-only: whatever is selected, it goes back to the marker option. Accepts the usual select options; `internal: true` hides it from Home Assistant. |
+| `card_map` | name: *Thermia card map* | Diagnostic select that lists `<config key>=<entity name>` for every configured entity, so [thermia-heatpump-card](https://github.com/mdepa91/ha-thermia-heatpump-card) can pick the entities by itself once you choose this device. Read-only: whatever is selected, it goes back to the marker option. Accepts the usual select options; `internal: true` hides it from Home Assistant. |
 | `registers` | – | List of extra read-only sensors: `register` (0x00–0x7F), `scale` (default 1), `signed` (default true) + any sensor option. |
 | `set_registers` | – | List of extra writable numbers: `register`, **`min_value`, `max_value` (required)**, `step`, `scale`, `signed` + any number option. |
 
