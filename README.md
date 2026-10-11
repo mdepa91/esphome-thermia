@@ -10,8 +10,11 @@ Read **and write** Thermia / Danfoss ground-source heat pump parameters from Hom
   hot water thresholds, …
 - Generic `registers:` (read) and `set_registers:` (write) for anything else in the register map.
 - Software I2C **slave** on ESP8266 and ESP32, running entirely in IRAM, with host-side unit tests (203 checks).
+- Pairs with [esphome-thermia-room](https://github.com/mdepa91/esphome-thermia-room), which emulates the room sensor (terminals 303/304) so the
+  pump regulates on a real room temperature and a setpoint from Home Assistant. Both run on one ESP32.
 
-> **Tested on:** Thermia Duo 400V 10 kW, ESPHome 2026.9.0, Wemos D1 mini.
+> **Tested on:** Thermia Duo 400V 10 kW – Wemos D1 mini (ESP8266, ESPHome 2026.9.0) and ESP32-S3
+> (ESPHome 2026.9.1, together with [esphome-thermia-room](https://github.com/mdepa91/esphome-thermia-room)).
 > Other Thermia / Danfoss models using the same EXT protocol (the one ThermIQ talks to) will most likely work,
 > but register meanings may differ – compare with your pump's display before trusting a value.
 
@@ -140,7 +143,7 @@ Each of these accepts the usual `number` options; `min_value` / `max_value` can 
 | `setting_curve_slope` | r34 | number | 22–56 | range from the pump menu |
 | `setting_curve_min` / `setting_curve_max` | r35 / r36 | number, °C | 0–200 | ❌ |
 | `setting_curve_offset_p5` / `_0` / `_n5` | r37 / r38 / r39 | number, °C | −5–5 | ❌ |
-| `setting_room_factor` | r3C | number | 0–4 (room temperature influence, needs a physical room sensor) | ❌ |
+| `setting_room_factor` | r3C | number | 0–4 (room temperature influence, needs a room sensor – physical or [esphome-thermia-room](https://github.com/mdepa91/esphome-thermia-room)) | ❌ |
 | `setting_heating_stop_temp` | r3A | number, °C | 0–200 | ❌ |
 | `setting_hotwater_start_temp` / `setting_hotwater_stop_temp` | r44 / r54 | number, °C | 0–100 | ❌ |
 | `setting_max_electric_steps` | r51 | number | 0–3 | ❌ |
@@ -161,6 +164,8 @@ only every few minutes. Such a register is marked with `~` in the `regs:` debug 
 
 Not everything is writable: writing r01 (indoor temperature) to emulate a room sensor is **ignored** by the pump.
 The physical "Room sensor" port is not a plain resistive input either (it carries ~27 V DC and a digital protocol).
+To give the pump a real room temperature and setpoint, use [esphome-thermia-room](https://github.com/mdepa91/esphome-thermia-room): it emulates the
+room sensor on that port, and this component then shows the result in `temp_indoor` / `temp_indoor_target`.
 
 Factory reset (r59) and counter reset (r5A) are deliberately not exposed as named entities.
 
@@ -265,8 +270,9 @@ on every push.
 ## Limitations
 
 - ESP8266 and ESP32 only. On ESP32 both pins must be GPIO0–31, and `inverted:` pins are not supported.
-- ESP32 support is compile-tested; the bus timing was verified on real hardware with the ESP8266 only.
-- Temperatures have 1 °C resolution – that's what the pump reports.
+- Verified on real hardware with an ESP8266 (Wemos D1 mini) and an ESP32-S3; other ESP32 variants are compile-tested.
+- Temperatures have 1 °C resolution – that's what the pump reports. Indoor temperature and indoor target are the
+  exception: the pump reports their tenths separately (r02/r04), so they have 0.1 °C.
 - Register meanings come from the ThermIQ map; not all are confirmed on every model.
 
 ## Credits
@@ -276,6 +282,7 @@ on every push.
 - [Danfoss-lämpöpumpun salaisuudet](https://omakotikotitalomme.blogspot.com/2015/03/danfoss-lampopumpun-salaisuudet.html)
   – the original reverse-engineering blog post (pinout, address, ping, frame format).
 - [ThermIQ/thermiq_mqtt-ha](https://github.com/ThermIQ/thermiq_mqtt-ha) – register map and mode labels.
+- [esphome-thermia-room](https://github.com/mdepa91/esphome-thermia-room) – companion component: room sensor emulation on terminals 303/304.
 - Repository layout inspired by [thegroove/esphome-custom-component-examples](https://github.com/thegroove/esphome-custom-component-examples).
 
 Thermia and Danfoss are trademarks of their respective owners; this project is not affiliated with them.
