@@ -91,6 +91,7 @@ Do **not** add an `i2c:` block – the ESPHome I2C component can only be a maste
 | `sniff` | `false` | Hardware diagnostics: record raw SDA/SCL waveforms. **Disables the protocol.** See [Diagnostics](#diagnostics). |
 | `selftest` | `false` | Hardware diagnostics: probe the SDA line at boot and log level changes. |
 | `link` | – | Binary sensor (connectivity): on while the pump is talking to us. |
+| `card_map` | name: *Thermia card map* | Diagnostic select that lists `<config key>=<entity name>` for every configured entity, so [thermia-heatpump-card](https://github.com/mdepa91/thermia-heatpump-card) can pick the entities by itself once you choose this device. Read-only: whatever is selected, it goes back to the marker option. Accepts the usual select options; `internal: true` hides it from Home Assistant. |
 | `registers` | – | List of extra read-only sensors: `register` (0x00–0x7F), `scale` (default 1), `signed` (default true) + any sensor option. |
 | `set_registers` | – | List of extra writable numbers: `register`, **`min_value`, `max_value` (required)**, `step`, `scale`, `signed` + any number option. |
 

@@ -23,6 +23,7 @@ from esphome.const import (
     CONF_NUMBER,
     CONF_MAX_VALUE,
     CONF_MIN_VALUE,
+    CONF_NAME,
     CONF_STEP,
     DEVICE_CLASS_CONNECTIVITY,
     DEVICE_CLASS_CURRENT,
@@ -46,6 +47,7 @@ thermia_ns = cg.esphome_ns.namespace("thermia")
 ThermiaComponent = thermia_ns.class_("ThermiaComponent", cg.PollingComponent)
 ThermiaNumber = thermia_ns.class_("ThermiaNumber", number.Number)
 ThermiaSelect = thermia_ns.class_("ThermiaSelect", select.Select)
+CardMapSelect = thermia_ns.class_("CardMapSelect", select.Select, cg.Component)
 
 CONF_SDA_PIN = "sda_pin"
 CONF_SCL_PIN = "scl_pin"
@@ -55,6 +57,10 @@ CONF_DEBUG_FRAMES = "debug_frames"
 CONF_SNIFF = "sniff"
 CONF_SELFTEST = "selftest"
 CONF_LINK = "link"
+# Diagnostic select listing "<config key>=<entity name>" for thermia-heatpump-card's device auto-detection
+# (see card_map_select.h). On by default; `card_map: {internal: true}` hides it from Home Assistant.
+CONF_CARD_MAP = "card_map"
+CARD_MAP_MARKER = "thermia-card-map:1"
 CONF_REGISTERS = "registers"
 CONF_SET_REGISTERS = "set_registers"
 CONF_REGISTER = "register"
@@ -261,6 +267,9 @@ _schema = {
     cv.Optional(CONF_DEBUG_FRAMES, default=False): cv.boolean,
     cv.Optional(CONF_SNIFF, default=False): cv.boolean,
     cv.Optional(CONF_SELFTEST, default=False): cv.boolean,
+    cv.Optional(CONF_CARD_MAP, default={CONF_NAME: "Thermia card map"}): select.select_schema(
+        CardMapSelect, entity_category=ENTITY_CATEGORY_DIAGNOSTIC, icon="mdi:map-legend"
+    ),
     cv.Optional(CONF_LINK): binary_sensor.binary_sensor_schema(
         device_class=DEVICE_CLASS_CONNECTIVITY,
         entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
@@ -327,6 +336,15 @@ async def to_code(config):
 
     if CONF_LINK in config:
         cg.add(var.set_link_sensor(await binary_sensor.new_binary_sensor(config[CONF_LINK])))
+
+    # Card map: which configured entity carries which value (names as given in YAML).
+    map_options = [CARD_MAP_MARKER] + [
+        f"{key}={config[key][CONF_NAME]}"
+        for key in (*SENSORS, *BINARY_SENSORS, *NUMBERS, *SELECTS)
+        if key in config and config[key].get(CONF_NAME)
+    ]
+    card_map = await select.new_select(config[CONF_CARD_MAP], options=map_options)
+    await cg.register_component(card_map, config[CONF_CARD_MAP])
 
     for key, spec in SENSORS.items():
         if key in config:
