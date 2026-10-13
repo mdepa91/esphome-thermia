@@ -147,7 +147,7 @@ Each of these accepts the usual `number` options; `min_value` / `max_value` can 
 | `setting_curve_slope` | r34 | number | 22–56 | range from the pump menu |
 | `setting_curve_min` / `setting_curve_max` | r35 / r36 | number, °C | 0–200 | ❌ |
 | `setting_curve_offset_p5` / `_0` / `_n5` | r37 / r38 / r39 | number, °C | −5–5 | ❌ |
-| `setting_room_factor` | r3C | number | 0–4 (room temperature influence, needs a room sensor – physical or [esphome-thermia-room](https://github.com/mdepa91/esphome-thermia-room)) | ❌ |
+| `setting_room_factor` | r3C | number | 0–4 (room temperature influence, needs a room sensor – physical or [esphome-thermia-room](https://github.com/mdepa91/esphome-thermia-room)); 0 = room sensor off, the pump regulates to r32 (pump manual) | ❌ |
 | `setting_heating_stop_temp` | r3A | number, °C | 0–200 | ❌ |
 | `setting_hotwater_start_temp` / `setting_hotwater_stop_temp` | r44 / r54 | number, °C | 0–100 | ❌ |
 | `setting_max_electric_steps` | r51 | number | 0–3 | ❌ |
