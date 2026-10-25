@@ -59,3 +59,10 @@ thermia:
     name: "Room temperature setpoint"
   setting_main_mode:
     name: "Operating mode"
+
+  # Smart grid / EVU via PhotoMOS relays (see README, "Smart grid / EVU"). Remove if not wired.
+  smart_grid:
+    name: "Smart grid mode"
+    sg1_pin: GPIO25       # shorts 307/308 (EVU block)
+    sg1_10k_pin: GPIO26   # 10 kOhm across 307/308 (reduction), optional
+    sg2_pin: GPIO27       # shorts 309/310 (comfort / boost), optional

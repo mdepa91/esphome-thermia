@@ -13,6 +13,10 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -DTHERMIA_HOST_TEST -I test -I components/thermia test/test_slave.cpp components/thermia/thermia_slave.cpp -o test/test_slave
           ./test/test_slave
+      - name: Build and run smart grid tests
+        run: |
+          g++ -std=c++17 -Wall -I components/thermia test/test_smart_grid.cpp -o test/test_smart_grid
+          ./test/test_smart_grid
 
   esphome-compile:
     runs-on: ubuntu-latest
@@ -28,7 +32,7 @@ jobs:
             sed: ""
           - target: esp32-c3
             config: example-esp32.yaml
-            sed: "s#board: esp32dev#board: esp32-c3-devkitm-1#; s#GPIO21#GPIO6#; s#GPIO22#GPIO7#"
+            sed: "s#board: esp32dev#board: esp32-c3-devkitm-1#; s#GPIO21#GPIO6#; s#GPIO22#GPIO7#; s#GPIO25#GPIO4#; s#GPIO26#GPIO5#; s#GPIO27#GPIO10#"
     name: esphome-compile (${{ matrix.target }})
     steps:
       - uses: actions/checkout@v4

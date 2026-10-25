@@ -11,3 +11,4 @@ venv/
 
 # Host test binaries
 test/test_slave
+test/test_smart_grid
