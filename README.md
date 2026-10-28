@@ -242,7 +242,18 @@ This is the same circuit as with two/three mechanical relays (NO contacts), just
   terminal strip – disconnect the pump's power before wiring.
 - **`inverted: true`:** use it if your board drives the relay LED active-low (LED from 3.3 V to the GPIO) or through
   an inverting driver stage. Before ESPHome sets the pin up, the GPIO floats – make sure a floating pin leaves the
-  relay **off** (with the circuit above it does; with an inverting driver add a pull resistor).
+  relay **off** (with the circuit above it does; with an inverting driver add a pull resistor). Each pin is set
+  separately, with the full ESPHome pin syntax:
+
+  ```yaml
+  smart_grid:
+    name: "Smart grid mode"
+    sg1_pin:
+      number: GPIO25
+      inverted: true    # contact closed = GPIO low
+    sg1_10k_pin: GPIO26
+    sg2_pin: GPIO27
+  ```
 
 ### Pins
 
