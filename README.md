@@ -127,6 +127,38 @@ All values are whole numbers as reported by the pump (temperatures in °C, signe
 | `runtime_aux_3kw` | r6A | h |
 | `runtime_hotwater` | r6C | h |
 | `runtime_aux_6kw` | r72 | h |
+| `compressor_starts_today` / `compressor_starts_month` | counted from r10 | starts – see below |
+
+#### Compressor starts
+
+The pump has no start counter register, so the ESP counts starts itself: the compressor bit (r10) going from off
+to on is one start. `compressor_starts_today` resets at midnight, `compressor_starts_month` on the 1st. Both need
+a clock (`time_id`) to know when a day or month begins:
+
+```yaml
+time:
+  - platform: homeassistant   # or sntp
+    id: ha_time
+
+thermia:
+  # ...
+  time_id: ha_time
+  compressor_starts_today:
+    name: "Compressor starts today"
+  compressor_starts_month:
+    name: "Compressor starts this month"
+```
+
+- The counts are kept in flash and survive a restart or power cut. Flash is written only when a start is counted
+  or the date changes (and at most once a minute, ESPHome's `flash_write_interval`). A start in the last minute
+  before a power cut can be lost.
+- The first reading after boot is only a baseline: a start that happened while the ESP was off is not counted.
+  While the EXT link is down the last known state is kept, so a compressor that was off before the outage and
+  runs after it counts as one start.
+- The compressor state is checked every `update_interval` (10 s by default). A start and stop within that time
+  would be missed; in practice the pump's minimum run time and start interval are much longer.
+- Starts before the clock is valid (right after boot) count towards the day that the clock then reports.
+- Both sensors use `state_class: total_increasing`, so Home Assistant treats the reset to 0 as a new cycle.
 
 ### Binary sensors
 
@@ -362,10 +394,11 @@ foreign addresses, stuck bus, never-ending frames, late interrupts, writes, bus 
 g++ -std=c++17 -DTHERMIA_HOST_TEST -I test -I components/thermia test/test_slave.cpp components/thermia/thermia_slave.cpp -o test/test_slave && test/test_slave
 ```
 
-The smart grid mode → contact mapping has its own test:
+The smart grid mode → contact mapping and the compressor start counter have their own tests:
 
 ```sh
 g++ -std=c++17 -I components/thermia test/test_smart_grid.cpp -o test/test_smart_grid && test/test_smart_grid
+g++ -std=c++17 -I components/thermia test/test_start_counter.cpp -o test/test_start_counter && test/test_start_counter
 ```
 
 CI runs these tests and compiles `example.yaml` (ESP8266) and `example-esp32.yaml` (ESP32, ESP32-C3) with ESPHome

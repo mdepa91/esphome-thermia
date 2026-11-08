@@ -33,6 +33,10 @@ wifi:
 
 captive_portal:
 
+time:
+  - platform: homeassistant
+    id: ha_time
+
 # Do NOT add an `i2c:` block: the pump is the I2C master, this component is a software I2C slave (0x2E).
 # Pins: GPIO0-31, not boot-strapping pins (0, 2, 5, 12, 15 on the classic ESP32), not input-only.
 thermia:
@@ -53,6 +57,11 @@ thermia:
     name: "Hot water (T3)"
   compressor:
     name: "Compressor"
+  time_id: ha_time
+  compressor_starts_today:
+    name: "Compressor starts today"
+  compressor_starts_month:
+    name: "Compressor starts this month"
   alarm:
     name: "Alarm"
   setting_indoor_temp:

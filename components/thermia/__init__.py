@@ -16,6 +16,7 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import pins
 from esphome.components import binary_sensor, number, select, sensor
+from esphome.components import time as time_
 from esphome.core import CORE
 from esphome.const import (
     CONF_ID,
@@ -25,6 +26,7 @@ from esphome.const import (
     CONF_MIN_VALUE,
     CONF_NAME,
     CONF_STEP,
+    CONF_TIME_ID,
     DEVICE_CLASS_CONNECTIVITY,
     DEVICE_CLASS_CURRENT,
     DEVICE_CLASS_DURATION,
@@ -67,6 +69,13 @@ CONF_SET_REGISTERS = "set_registers"
 CONF_REGISTER = "register"
 CONF_SCALE = "scale"
 CONF_SIGNED = "signed"
+# Compressor starts today / this month, counted on the ESP (the pump has no such register) - see start_counter.h.
+# Day and month boundaries come from an ESPHome `time:` component (time_id).
+CONF_COMPRESSOR_STARTS_TODAY = "compressor_starts_today"
+CONF_COMPRESSOR_STARTS_MONTH = "compressor_starts_month"
+_STARTS_SCHEMA = sensor.sensor_schema(
+    icon="mdi:counter", accuracy_decimals=0, state_class=STATE_CLASS_TOTAL_INCREASING
+)
 # Smart grid / EVU: PhotoMOS relays on the pump's terminals 307/308 (SG1) and 309/310 (SG2), see smart_grid_modes.h.
 CONF_SMART_GRID = "smart_grid"
 CONF_SG1_PIN = "sg1_pin"
@@ -301,6 +310,9 @@ _schema = {
     cv.Optional(CONF_REGISTERS): cv.ensure_list(RAW_SENSOR_SCHEMA),
     cv.Optional(CONF_SET_REGISTERS): cv.ensure_list(RAW_NUMBER_SCHEMA),
     cv.Optional(CONF_SMART_GRID): SMART_GRID_SCHEMA,
+    cv.Optional(CONF_COMPRESSOR_STARTS_TODAY): _STARTS_SCHEMA,
+    cv.Optional(CONF_COMPRESSOR_STARTS_MONTH): _STARTS_SCHEMA,
+    cv.Optional(CONF_TIME_ID): cv.use_id(time_.RealTimeClock),
 }
 for _key, _spec in SENSORS.items():
     _schema[cv.Optional(_key)] = sensor.sensor_schema(**_spec["schema"])
@@ -337,6 +349,11 @@ def _validate_pins(config):
                              path=[key])
     if config[CONF_SDA_PIN][CONF_NUMBER] == config[CONF_SCL_PIN][CONF_NUMBER]:
         raise cv.Invalid("sda_pin and scl_pin must be different pins")
+    if CONF_TIME_ID not in config:
+        for key in (CONF_COMPRESSOR_STARTS_TODAY, CONF_COMPRESSOR_STARTS_MONTH):
+            if key in config:
+                raise cv.Invalid("needs time_id: a `time:` component (e.g. platform: homeassistant) to know when a "
+                                 "day or month starts", path=[key])
     return config
 
 
@@ -405,6 +422,13 @@ async def to_code(config):
             cg.add(sel.set_parent(var))
             cg.add(sel.set_register(spec["reg"]))
             cg.add(var.add_select(spec["reg"], sel))
+
+    if CONF_TIME_ID in config:
+        cg.add(var.set_time(await cg.get_variable(config[CONF_TIME_ID])))
+    if CONF_COMPRESSOR_STARTS_TODAY in config:
+        cg.add(var.set_starts_today_sensor(await sensor.new_sensor(config[CONF_COMPRESSOR_STARTS_TODAY])))
+    if CONF_COMPRESSOR_STARTS_MONTH in config:
+        cg.add(var.set_starts_month_sensor(await sensor.new_sensor(config[CONF_COMPRESSOR_STARTS_MONTH])))
 
     if CONF_SMART_GRID in config:
         conf = config[CONF_SMART_GRID]

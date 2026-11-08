@@ -17,6 +17,10 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -I components/thermia test/test_smart_grid.cpp -o test/test_smart_grid
           ./test/test_smart_grid
+      - name: Build and run start counter tests
+        run: |
+          g++ -std=c++17 -Wall -I components/thermia test/test_start_counter.cpp -o test/test_start_counter
+          ./test/test_start_counter
 
   esphome-compile:
     runs-on: ubuntu-latest

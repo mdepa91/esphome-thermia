@@ -4,10 +4,16 @@
 
 #include "esphome/core/component.h"
 #include "esphome/core/hal.h"
+#include "esphome/core/preferences.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/number/number.h"
 #include "esphome/components/select/select.h"
 #include "esphome/components/sensor/sensor.h"
+#ifdef USE_TIME
+#include "esphome/components/time/real_time_clock.h"
+#endif
+
+#include "start_counter.h"
 
 #include "thermia_bus_gate.h"
 #include "thermia_slave.h"
@@ -25,6 +31,21 @@ class ThermiaComponent : public PollingComponent {
   void set_sniff(bool enabled) { this->sniff_ = enabled; }
   void set_selftest(bool enabled) { this->selftest_ = enabled; }
   void set_link_sensor(binary_sensor::BinarySensor *sensor) { this->link_ = sensor; }
+
+  // Compressor starts today / this month, counted from the compressor bit - see start_counter.h.
+  static constexpr uint8_t COMPRESSOR_REG = 0x10;
+  static constexpr uint16_t COMPRESSOR_MASK = 0x0002;
+  void set_starts_today_sensor(sensor::Sensor *sensor) {
+    this->starts_today_ = sensor;
+    this->note_register_(COMPRESSOR_REG);
+  }
+  void set_starts_month_sensor(sensor::Sensor *sensor) {
+    this->starts_month_ = sensor;
+    this->note_register_(COMPRESSOR_REG);
+  }
+#ifdef USE_TIME
+  void set_time(time::RealTimeClock *clock) { this->time_ = clock; }
+#endif
 
   // decimal_reg: register holding this value's tenths (0-9), or NO_DECIMAL_REG - see __init__.py _temp().
   static constexpr uint8_t NO_DECIMAL_REG = 0xFF;
@@ -108,6 +129,8 @@ class ThermiaComponent : public PollingComponent {
   void watch_pins_(uint32_t now);
   void update_link_(uint32_t now);
   void update_bus_gate_(uint32_t now);
+  bool counts_starts_() const { return this->starts_today_ != nullptr || this->starts_month_ != nullptr; }
+  void update_starts_();
 
   InternalGPIOPin *sda_pin_{nullptr};
   InternalGPIOPin *scl_pin_{nullptr};
@@ -134,6 +157,14 @@ class ThermiaComponent : public PollingComponent {
   std::vector<SelectBinding> selects_;
   std::vector<uint8_t> registers_;
   binary_sensor::BinarySensor *link_{nullptr};
+
+  sensor::Sensor *starts_today_{nullptr};
+  sensor::Sensor *starts_month_{nullptr};
+  StartCounter starts_;
+  ESPPreferenceObject starts_pref_;
+#ifdef USE_TIME
+  time::RealTimeClock *time_{nullptr};
+#endif
 
   uint16_t seen_seq_[ThermiaSlave::MAX_REG + 1]{};
   uint32_t rx_ms_[ThermiaSlave::MAX_REG + 1]{};

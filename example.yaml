@@ -36,6 +36,11 @@ wifi:
 
 captive_portal:
 
+# Clock for compressor_starts_today / _month (day and month boundaries).
+time:
+  - platform: homeassistant
+    id: ha_time
+
 # Do NOT add an `i2c:` block: the pump is the I2C master, this component is a software I2C slave (0x2E).
 # Do NOT use GPIO2 for status_led if you wire SDA/SCL there.
 thermia:
@@ -153,6 +158,12 @@ thermia:
     name: "Aux 3 kW runtime"
   runtime_aux_6kw:
     name: "Aux 6 kW runtime"
+  # Counted on the ESP from the compressor state (the pump has no start counter), kept in flash.
+  time_id: ha_time
+  compressor_starts_today:
+    name: "Compressor starts today"
+  compressor_starts_month:
+    name: "Compressor starts this month"
 
   # Smart grid / EVU via PhotoMOS relays on terminals 307/308 and 309/310 (see README, "Smart grid / EVU"):
   # smart_grid:

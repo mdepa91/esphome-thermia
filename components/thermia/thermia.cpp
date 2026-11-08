@@ -52,6 +52,15 @@ static bool network_is_connected() { return true; }  // no network component con
 void IRAM_ATTR ThermiaComponent::isr_(ThermiaComponent *self) { self->slave_.on_sda_fall(); }
 
 void ThermiaComponent::setup() {
+  if (this->counts_starts_()) {
+    // In flash (not RTC memory on the ESP8266), so the counts survive a power cut. Saved only when a start is
+    // counted or the day changes - a few writes a day.
+    this->starts_pref_ = global_preferences->make_preference<StartCounterState>(fnv1_hash("thermia_starts"), true);
+    StartCounterState saved;
+    if (this->starts_pref_.load(&saved))
+      this->starts_.state() = saved;
+  }
+
   for (uint8_t reg : this->registers_)
     this->slave_.add_poll(reg);
 
@@ -261,6 +270,9 @@ void ThermiaComponent::update() {
       b.sensor->publish_state((raw & b.mask) != 0);
   }
 
+  if (this->counts_starts_())
+    this->update_starts_();
+
   // Numbers/selects: correct the optimistic state set by control() with what the pump actually reports. This is
   // the only way the user finds out a write was ignored or clamped - the bus protocol gives no other confirmation.
   // Skipped while superseded(): the cached reading predates our last write, it would undo the optimistic state.
@@ -322,6 +334,33 @@ void ThermiaComponent::update() {
     ESP_LOGD(TAG, "regs: %s", line);
 }
 
+void ThermiaComponent::update_starts_() {
+  bool changed = false;
+#ifdef USE_TIME
+  if (this->time_ != nullptr) {
+    const ESPTime t = this->time_->now();
+    if (t.is_valid()) {
+      const uint32_t month_key = t.year * 100u + t.month;
+      changed |= this->starts_.roll(month_key * 100u + t.day_of_month, month_key);
+    }
+  }
+#endif
+  // Only fresh readings: while the link is down the last known state is kept, so a compressor that was off before
+  // and runs after the outage still counts as one start.
+  uint16_t raw;
+  if (this->fresh_value_(COMPRESSOR_REG, raw) && this->starts_.feed((raw & COMPRESSOR_MASK) != 0)) {
+    ESP_LOGD(TAG, "Compressor start: today=%u month=%u", (unsigned) this->starts_.state().today,
+             (unsigned) this->starts_.state().month);
+    changed = true;
+  }
+  if (changed)
+    this->starts_pref_.save(&this->starts_.state());
+  if (this->starts_today_ != nullptr)
+    this->starts_today_->publish_state(this->starts_.state().today);
+  if (this->starts_month_ != nullptr)
+    this->starts_month_->publish_state(this->starts_.state().month);
+}
+
 void ThermiaComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "Thermia/Danfoss EXT port (software I2C slave, address 0x%02X):", ThermiaSlave::SLAVE_ADDR);
   LOG_PIN("  SDA pin: ", this->sda_pin_);
@@ -350,6 +389,8 @@ void ThermiaComponent::dump_config() {
     LOG_SENSOR("  ", "Sensor", b.sensor);
   for (auto &b : this->binary_sensors_)
     LOG_BINARY_SENSOR("  ", "Binary sensor", b.sensor);
+  LOG_SENSOR("  ", "Compressor starts today", this->starts_today_);
+  LOG_SENSOR("  ", "Compressor starts this month", this->starts_month_);
   for (auto &b : this->numbers_) {
     LOG_NUMBER("  ", "Number (writable)", b.number);
     ESP_LOGCONFIG(TAG, "    Register: 0x%02X", b.reg);
