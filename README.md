@@ -9,6 +9,8 @@ Read **and write** Thermia / Danfoss ground-source heat pump parameters from Hom
 - Writable settings as `number` / `select` entities: room temperature setpoint, operating mode, heating curve,
   hot water thresholds, …
 - Generic `registers:` (read) and `set_registers:` (write) for anything else in the register map.
+- Optional **smart grid / EVU** control: a `select` that drives the pump's SG1/SG2 inputs (terminals 307/308 and
+  309/310) through PhotoMOS relays – EVU block, reduction, comfort, boost. See [Smart grid / EVU](#smart-grid--evu).
 - Software I2C **slave** on ESP8266 and ESP32, running entirely in IRAM, with host-side unit tests (203 checks).
 - Pairs with [esphome-thermia-room](https://github.com/mdepa91/esphome-thermia-room), which emulates the room sensor (terminals 303/304) so the
   pump regulates on a real room temperature and a setpoint from Home Assistant. Both run on one ESP32.
@@ -173,6 +175,98 @@ room sensor on that port, and this component then shows the result in `temp_indo
 
 Factory reset (r59) and counter reset (r5A) are deliberately not exposed as named entities.
 
+## Smart grid / EVU
+
+The pump has two digital inputs for an energy supplier (EVU) or smart grid signal: **SG1 = terminals 307/308**
+(labelled *EVU/Smart grid 1*) and **SG2 = terminals 309/310** (*Smart grid 2*). They need no activation in the
+pump's menu. These inputs are separate from the EXT port, so the ESP drives them with its own GPIOs through
+**PhotoMOS** (solid-state, optically isolated) relays. From the Thermia Legend installation guide:
+
+| SG1 (307/308) | SG2 (309/310) | Mode | Select option |
+|---|---|---|---|
+| open | open | normal operation | `Normal` |
+| 10 kΩ | open | reduction: room target lowered (adjustable on the pump, default 1), start temperature 2 °C lower, hot water stops at 50 °C | `Reduction` |
+| short | open | **EVU block**: compressor and aux heater off – risk of freezing if held too long. The display shows *EVU STOP*; after it ends, the aux heater waits *OPOZN. PO EVU* (default 30 min) | `EVU block` |
+| open | short | comfort: hot water start +4 K (max 48 °C), room target +SG+ | `Comfort` |
+| short | short | boost: hot water start +6 K, one hot water top-up (may use the aux heater), room target +SG+ +1 | `Boost` |
+
+```yaml
+thermia:
+  # ...
+  smart_grid:
+    name: "Smart grid mode"
+    sg1_pin: GPIO25       # required: shorts 307/308
+    sg1_10k_pin: GPIO26   # optional: 10 kΩ across 307/308
+    sg2_pin: GPIO27       # optional: shorts 309/310
+```
+
+| Key | Required | Contact | Enables |
+|---|---|---|---|
+| `sg1_pin` | yes | short across 307/308 | `EVU block` (and `Boost` with `sg2_pin`) |
+| `sg1_10k_pin` | no | 10 kΩ resistor in series, across 307/308 | `Reduction` |
+| `sg2_pin` | no | short across 309/310 | `Comfort`, `Boost` |
+
+Options whose pin is not configured are not offered in the select. Each pin accepts the usual ESPHome pin options,
+including `inverted: true` (see below). Other `select` options (`icon`, `internal`, …) work too.
+
+Behaviour:
+
+- At boot every output is off (all contacts open = `Normal`). The mode is **not** restored after a restart and there
+  are no built-in time limits – control it from a Home Assistant automation.
+- When switching, new contacts close before old ones open. `Reduction` ↔ `EVU block` therefore passes through
+  "10 kΩ parallel with a short" (= still a short), never through "open", so the pump never sees a brief `Normal`.
+- The pump reports nothing about these inputs over EXT, so the select shows what the ESP set, not what the pump
+  applied. Check the pump's display (*EVU STOP*) the first time.
+
+### Wiring
+
+Per channel: the PhotoMOS LED is driven by an ESP GPIO, its output contact goes to the pump terminals.
+
+```
+ESP GPIO ──[R]──►|── GND        PhotoMOS LED (anode on GPIO, cathode on ESP GND)
+                 ┊ optical isolation
+307 ──────────── contact ──────────── 308      sg1_pin
+307 ──[10 kΩ]─── contact ──────────── 308      sg1_10k_pin
+309 ──────────── contact ──────────── 310      sg2_pin
+```
+
+This is the same circuit as with two/three mechanical relays (NO contacts), just solid-state.
+
+- **PhotoMOS:** a normally-open (form A) type with AC/DC output, so polarity on 307–310 does not matter, e.g.
+  AQY212, TLP222A, G3VM-61A1, CPC1017N. Look for on-resistance of a few ohms or less and off-leakage below 1 µA:
+  the pump tells "short", "10 kΩ" and "open" apart, so the contact must look like all three.
+- **LED resistor:** `R = (3.3 V − V_F) / I_F`. With a typical V_F ≈ 1.2 V and I_F ≈ 5 mA, R ≈ 390 Ω (check the
+  relay's minimum trigger current; stay well below the GPIO's limit, ~12 mA on ESP8266).
+- **Before building a PCB, measure the open-circuit voltage and the short-circuit current on 307/308 and 309/310**
+  and check them against the relay's ratings. They are low-voltage inputs, but 230 V terminals are on the same
+  terminal strip – disconnect the pump's power before wiring.
+- **`inverted: true`:** use it if your board drives the relay LED active-low (LED from 3.3 V to the GPIO) or through
+  an inverting driver stage. Before ESPHome sets the pin up, the GPIO floats – make sure a floating pin leaves the
+  relay **off** (with the circuit above it does; with an inverting driver add a pull resistor). Each pin is set
+  separately, with the full ESPHome pin syntax:
+
+  ```yaml
+  smart_grid:
+    name: "Smart grid mode"
+    sg1_pin:
+      number: GPIO25
+      inverted: true    # contact closed = GPIO low
+    sg1_10k_pin: GPIO26
+    sg2_pin: GPIO27
+  ```
+
+### Pins
+
+Use pins that are **not boot-strapping pins** and float (high impedance) during boot, so no relay pulses while the
+ESP starts. Never reuse `sda_pin` / `scl_pin`.
+
+| Board | Recommended | Avoid |
+|---|---|---|
+| ESP8266 (D1 mini) | **D5 (GPIO14), D6 (GPIO12), D7 (GPIO13)** | D3/GPIO0, D4/GPIO2, D8/GPIO15 (boot strapping), D0/GPIO16 (high at boot), TX/RX (toggle at boot) |
+| ESP32 (classic) | **GPIO25, GPIO26, GPIO27**; also GPIO32, GPIO33, GPIO4 | GPIO0, 2, 5, 12, 15 (strapping), 6–11 (flash), 34–39 (input only), 1/3 (UART), 16/17 on WROVER (PSRAM) |
+| ESP32-S3 | **GPIO4–GPIO7, GPIO15–GPIO18** | GPIO0, 3, 45, 46 (strapping), 19/20 (USB), 26–32 (flash), 33–37 on octal-PSRAM modules, 43/44 (UART) |
+| ESP32-C3 | **GPIO4, GPIO5, GPIO10** | GPIO2, 8, 9 (strapping), 12–17 (flash), 18/19 (USB), 20/21 (UART) |
+
 ## How it works
 
 The EXT port is an I2C bus where **the heat pump is the master** (~20 kHz clock) and the accessory is a slave
@@ -268,12 +362,20 @@ foreign addresses, stuck bus, never-ending frames, late interrupts, writes, bus 
 g++ -std=c++17 -DTHERMIA_HOST_TEST -I test -I components/thermia test/test_slave.cpp components/thermia/thermia_slave.cpp -o test/test_slave && test/test_slave
 ```
 
+The smart grid mode → contact mapping has its own test:
+
+```sh
+g++ -std=c++17 -I components/thermia test/test_smart_grid.cpp -o test/test_smart_grid && test/test_smart_grid
+```
+
 CI runs these tests and compiles `example.yaml` (ESP8266) and `example-esp32.yaml` (ESP32, ESP32-C3) with ESPHome
 on every push.
 
 ## Limitations
 
-- ESP8266 and ESP32 only. On ESP32 both pins must be GPIO0–31, and `inverted:` pins are not supported.
+- ESP8266 and ESP32 only. On ESP32 `sda_pin` / `scl_pin` must be GPIO0–31, and `inverted:` is not supported on
+  them (it is on the smart grid pins).
+- Smart grid / EVU is compile-tested only, not yet verified on a real pump.
 - Verified on real hardware with an ESP8266 (Wemos D1 mini) and an ESP32-S3; other ESP32 variants are compile-tested.
 - Temperatures have 1 °C resolution – that's what the pump reports. Indoor temperature and indoor target are the
   exception: the pump reports their tenths separately (r02/r04), so they have 0.1 °C.

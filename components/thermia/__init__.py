@@ -48,6 +48,7 @@ ThermiaComponent = thermia_ns.class_("ThermiaComponent", cg.PollingComponent)
 ThermiaNumber = thermia_ns.class_("ThermiaNumber", number.Number)
 ThermiaSelect = thermia_ns.class_("ThermiaSelect", select.Select)
 CardMapSelect = thermia_ns.class_("CardMapSelect", select.Select, cg.Component)
+SmartGridSelect = thermia_ns.class_("SmartGridSelect", select.Select, cg.Component)
 
 CONF_SDA_PIN = "sda_pin"
 CONF_SCL_PIN = "scl_pin"
@@ -66,6 +67,11 @@ CONF_SET_REGISTERS = "set_registers"
 CONF_REGISTER = "register"
 CONF_SCALE = "scale"
 CONF_SIGNED = "signed"
+# Smart grid / EVU: PhotoMOS relays on the pump's terminals 307/308 (SG1) and 309/310 (SG2), see smart_grid_modes.h.
+CONF_SMART_GRID = "smart_grid"
+CONF_SG1_PIN = "sg1_pin"
+CONF_SG1_10K_PIN = "sg1_10k_pin"
+CONF_SG2_PIN = "sg2_pin"
 
 # Plausibility window for temperatures; anything outside is treated as a corrupted frame.
 _T_MIN, _T_MAX = -60.0, 200.0
@@ -247,6 +253,24 @@ RAW_SENSOR_SCHEMA = sensor.sensor_schema(accuracy_decimals=0).extend(
 # Generic escape hatch for any other writable register: unlike the named entries above, min/max are NOT
 # defaulted - you must state the pump's actual valid range yourself. Get it wrong and the pump receives a value
 # outside what it expects.
+# Smart grid modes in option order: (label, value of SmartGridMode in smart_grid_modes.h, pins it needs).
+# A mode is offered only when all the pins it needs are configured; "Normal" is always option 0.
+SMART_GRID_MODES = [
+    ("Normal", 0, ()),
+    ("Reduction", 1, (CONF_SG1_10K_PIN,)),
+    ("EVU block", 2, (CONF_SG1_PIN,)),
+    ("Comfort", 3, (CONF_SG2_PIN,)),
+    ("Boost", 4, (CONF_SG1_PIN, CONF_SG2_PIN)),
+]
+
+SMART_GRID_SCHEMA = select.select_schema(SmartGridSelect, icon="mdi:transmission-tower").extend(
+    {
+        cv.Required(CONF_SG1_PIN): pins.gpio_output_pin_schema,
+        cv.Optional(CONF_SG1_10K_PIN): pins.gpio_output_pin_schema,
+        cv.Optional(CONF_SG2_PIN): pins.gpio_output_pin_schema,
+    }
+)
+
 RAW_NUMBER_SCHEMA = number.number_schema(ThermiaNumber).extend(
     {
         cv.Required(CONF_REGISTER): _REGISTER,
@@ -276,6 +300,7 @@ _schema = {
     ),
     cv.Optional(CONF_REGISTERS): cv.ensure_list(RAW_SENSOR_SCHEMA),
     cv.Optional(CONF_SET_REGISTERS): cv.ensure_list(RAW_NUMBER_SCHEMA),
+    cv.Optional(CONF_SMART_GRID): SMART_GRID_SCHEMA,
 }
 for _key, _spec in SENSORS.items():
     _schema[cv.Optional(_key)] = sensor.sensor_schema(**_spec["schema"])
@@ -380,6 +405,19 @@ async def to_code(config):
             cg.add(sel.set_parent(var))
             cg.add(sel.set_register(spec["reg"]))
             cg.add(var.add_select(spec["reg"], sel))
+
+    if CONF_SMART_GRID in config:
+        conf = config[CONF_SMART_GRID]
+        modes = [(label, mode) for label, mode, needs in SMART_GRID_MODES if all(k in conf for k in needs)]
+        sg = await select.new_select(conf, options=[label for label, _ in modes])
+        await cg.register_component(sg, conf)
+        cg.add(sg.set_sg1_pin(await cg.gpio_pin_expression(conf[CONF_SG1_PIN])))
+        if CONF_SG1_10K_PIN in conf:
+            cg.add(sg.set_sg1_10k_pin(await cg.gpio_pin_expression(conf[CONF_SG1_10K_PIN])))
+        if CONF_SG2_PIN in conf:
+            cg.add(sg.set_sg2_pin(await cg.gpio_pin_expression(conf[CONF_SG2_PIN])))
+        for _, mode in modes:
+            cg.add(sg.add_mode(mode))
 
     for raw in config.get(CONF_SET_REGISTERS, []):
         num = await number.new_number(

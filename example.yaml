@@ -154,6 +154,13 @@ thermia:
   runtime_aux_6kw:
     name: "Aux 6 kW runtime"
 
+  # Smart grid / EVU via PhotoMOS relays on terminals 307/308 and 309/310 (see README, "Smart grid / EVU"):
+  # smart_grid:
+  #   name: "Smart grid mode"
+  #   sg1_pin: D5       # GPIO14: shorts 307/308 (EVU block)
+  #   sg1_10k_pin: D6   # GPIO12: 10 kOhm across 307/308 (reduction), optional
+  #   sg2_pin: D7       # GPIO13: shorts 309/310 (comfort / boost), optional
+
   # Any other register from the ThermIQ map, read-only:
   # registers:
   #   - register: 0x1D
