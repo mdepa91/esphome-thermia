@@ -97,7 +97,7 @@ def _temp(reg, tmin=_T_MIN, tmax=_T_MAX, diagnostic=False, decimal_reg=None):
 
 
 def _num(reg, unit=None, icon=None, device_class=None, state_class=STATE_CLASS_MEASUREMENT,
-         diagnostic=False, tmin=-_ANY, tmax=_ANY):
+         diagnostic=False, tmin=-_ANY, tmax=_ANY, signed=True):
     schema = dict(accuracy_decimals=0)
     if unit:
         schema["unit_of_measurement"] = unit
@@ -109,10 +109,11 @@ def _num(reg, unit=None, icon=None, device_class=None, state_class=STATE_CLASS_M
         schema["state_class"] = state_class
     if diagnostic:
         schema["entity_category"] = ENTITY_CATEGORY_DIAGNOSTIC
-    return dict(reg=reg, min=tmin, max=tmax, schema=schema)
+    return dict(reg=reg, min=tmin, max=tmax, signed=signed, schema=schema)
 
 
-# key -> register definition. All values are signed 16 bit, unscaled (whole degrees etc.).
+# key -> register definition. Signed 16 bit, unscaled (whole degrees etc.), except the run time counters: those
+# are unsigned, so they do not turn negative above 32767 h.
 SENSORS = {
     # --- measurements -------------------------------------------------------------------------
     "temp_outdoor": _temp(0x00),
@@ -136,13 +137,13 @@ SENSORS = {
     "sw_version": _num(0x1D, icon="mdi:chip", state_class=None, diagnostic=True),
     # --- run time counters --------------------------------------------------------------------
     "runtime_compressor": _num(0x68, UNIT_HOUR, device_class=DEVICE_CLASS_DURATION,
-                               state_class=STATE_CLASS_TOTAL_INCREASING, diagnostic=True),
+                               state_class=STATE_CLASS_TOTAL_INCREASING, diagnostic=True, signed=False),
     "runtime_aux_3kw": _num(0x6A, UNIT_HOUR, device_class=DEVICE_CLASS_DURATION,
-                            state_class=STATE_CLASS_TOTAL_INCREASING, diagnostic=True),
+                            state_class=STATE_CLASS_TOTAL_INCREASING, diagnostic=True, signed=False),
     "runtime_hotwater": _num(0x6C, UNIT_HOUR, device_class=DEVICE_CLASS_DURATION,
-                             state_class=STATE_CLASS_TOTAL_INCREASING, diagnostic=True),
+                             state_class=STATE_CLASS_TOTAL_INCREASING, diagnostic=True, signed=False),
     "runtime_aux_6kw": _num(0x72, UNIT_HOUR, device_class=DEVICE_CLASS_DURATION,
-                            state_class=STATE_CLASS_TOTAL_INCREASING, diagnostic=True),
+                            state_class=STATE_CLASS_TOTAL_INCREASING, diagnostic=True, signed=False),
 }
 
 
@@ -375,7 +376,7 @@ async def to_code(config):
         if key in config:
             sens = await sensor.new_sensor(config[key])
             decimal_reg = spec.get("decimal_reg")
-            cg.add(var.add_sensor(spec["reg"], sens, 1.0, True, spec["min"], spec["max"],
+            cg.add(var.add_sensor(spec["reg"], sens, 1.0, spec.get("signed", True), spec["min"], spec["max"],
                                   0xFF if decimal_reg is None else decimal_reg))
 
     for key, spec in BINARY_SENSORS.items():

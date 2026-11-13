@@ -102,7 +102,9 @@ Do **not** add an `i2c:` block – the ESPHome I2C component can only be a maste
 
 ### Sensors
 
-All values are whole numbers as reported by the pump (temperatures in °C, signed 16-bit).
+All values are whole numbers as reported by the pump (temperatures in °C, signed 16-bit). The run-time counters
+(`runtime_*`) are unsigned 16-bit hours (0–65535): raw `0xFB0E` is 64 270 h, not −1266 h. A pump without a given
+counter may report a meaningless value such as `0xFF00` (65 280 h) – remove that entity then.
 
 | Key | Register | Unit |
 |---|---|---|
